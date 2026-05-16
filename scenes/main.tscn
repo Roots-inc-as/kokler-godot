@@ -7,7 +7,6 @@
 
 [node name="Main" type="Node2D" unique_id=1024115619]
 
-[node name="GameManager" type="Node" parent="."]
 [node name="GameManager" type="Node" parent="." unique_id=877879834]
 script = ExtResource("1_manager")
 player_path = NodePath("../Player")
