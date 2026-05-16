@@ -29,12 +29,25 @@ var state: int = State.IDLE
 var last_known_player_pos := Vector3.ZERO
 var idle_direction := Vector3.ZERO
 var lost_timer := 0.0
+var nav_agent: NavigationAgent3D
+var nav_update_timer := 0.0
 
 
 func _ready() -> void:
 	add_to_group("blind_rat_2_5d")
 	current_hp = max_hp
 	global_position.y = ground_y
+	
+	# NavigationAgent3D ekle
+	nav_agent = NavigationAgent3D.new()
+	nav_agent.name = "NavAgent"
+	nav_agent.path_desired_distance = 0.4
+	nav_agent.target_desired_distance = 0.4
+	nav_agent.radius = 0.2
+	nav_agent.height = 1.2
+	nav_agent.avoidance_enabled = false
+	add_child(nav_agent)
+	
 	call_deferred("_find_refs")
 
 
@@ -135,19 +148,43 @@ func _idle_movement(_delta: float) -> Vector3:
 
 
 func _chase_movement() -> Vector3:
-	var to_player := target.global_position - global_position
-	to_player.y = 0.0
-	if to_player.length() > 0.12:
-		return to_player.normalized() * move_speed
+	if nav_agent == null:
+		return Vector3.ZERO
+	
+	# Hedefi her frame değil, periyodik olarak güncelle (performans)
+	nav_update_timer -= get_physics_process_delta_time()
+	if nav_update_timer <= 0.0:
+		nav_agent.target_position = target.global_position
+		nav_update_timer = 0.25
+	
+	if nav_agent.is_navigation_finished():
+		return Vector3.ZERO
+	
+	var next_pos := nav_agent.get_next_path_position()
+	var direction := next_pos - global_position
+	direction.y = 0.0
+	if direction.length() > 0.05:
+		return direction.normalized() * move_speed
 	return Vector3.ZERO
 
 
 func _lost_movement() -> Vector3:
-	# Son bilinen yere git
-	var to_last_pos := last_known_player_pos - global_position
-	to_last_pos.y = 0.0
-	if to_last_pos.length() > 0.3:
-		return to_last_pos.normalized() * move_speed * 0.8  # biraz yavaş
+	if nav_agent == null:
+		return Vector3.ZERO
+	
+	nav_update_timer -= get_physics_process_delta_time()
+	if nav_update_timer <= 0.0:
+		nav_agent.target_position = last_known_player_pos
+		nav_update_timer = 0.5
+	
+	if nav_agent.is_navigation_finished():
+		return Vector3.ZERO
+	
+	var next_pos := nav_agent.get_next_path_position()
+	var direction := next_pos - global_position
+	direction.y = 0.0
+	if direction.length() > 0.05:
+		return direction.normalized() * move_speed * 0.8
 	return Vector3.ZERO
 
 

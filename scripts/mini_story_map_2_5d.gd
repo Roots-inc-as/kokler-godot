@@ -44,6 +44,7 @@ const ROOM_TYPE_EMPTY := "empty"
 @onready var victory_label: Label = $UI/VictoryPanel/VictoryLabel
 
 var generated_root: Node3D
+var nav_region: NavigationRegion3D
 var player: Node3D
 var has_key := false
 var victory := false
@@ -198,6 +199,7 @@ func _build_story_map() -> void:
 	_spawn_key_in_random_room()
 	_spawn_exit_in_last_room()
 	_add_room_lights_random()
+	_setup_navigation()
 
 
 func _add_rooms_and_corridors() -> void:
@@ -728,3 +730,39 @@ func _props_lore_room(center: Vector3, size: Vector2) -> void:
 	_add_lumen_hint(center + Vector3(-0.5, 0.05, 0.35))
 	_add_visual_box("LoreDampStone", center + Vector3(0.5, 0.08, -0.35), Vector3(1.0, 0.16, 0.42), dark_stone_material)
 	_add_lore_trigger("LoreTrigger", center + Vector3(0.0, 0.7, 0.0), Vector3(size.x * 0.8, 1.4, size.y * 0.8), "Bazi kapilar acilmaz. Seni bekler.")
+
+func _setup_navigation() -> void:
+	nav_region = NavigationRegion3D.new()
+	nav_region.name = "NavRegion"
+	# generated_root'a değil, sahnenin kendisine ekle
+	add_child(nav_region)
+	
+	# generated_root'u nav_region'ın çocuğu yap — böylece içindeki tüm mesh'leri görür
+	generated_root.reparent(nav_region)
+	
+	var nav_mesh := NavigationMesh.new()
+	nav_mesh.cell_size = 0.15
+	nav_mesh.cell_height = 0.15
+	nav_mesh.agent_height = 1.2
+	nav_mesh.agent_radius = 0.2
+	nav_mesh.agent_max_climb = 0.2
+	nav_mesh.agent_max_slope = 45.0
+	nav_mesh.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_MESH_INSTANCES
+	nav_mesh.geometry_source_geometry_mode = NavigationMesh.SOURCE_GEOMETRY_ROOT_NODE_CHILDREN
+	
+	nav_region.navigation_mesh = nav_mesh
+	call_deferred("_bake_navigation")
+
+
+func _bake_navigation() -> void:
+	if not is_instance_valid(nav_region):
+		return
+	nav_region.bake_navigation_mesh()
+	await get_tree().create_timer(0.3).timeout
+	var nav_mesh := nav_region.navigation_mesh
+	if nav_mesh:
+		var vertex_count := nav_mesh.get_vertices().size()
+		var polygon_count := nav_mesh.get_polygon_count()
+		print(">>> Navigation mesh bake edildi: ", vertex_count, " vertex, ", polygon_count, " polygon")
+		if vertex_count == 0:
+			print(">>> UYARI: Mesh boş!")
