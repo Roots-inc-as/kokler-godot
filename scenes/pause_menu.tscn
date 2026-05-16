@@ -1,0 +1,125 @@
+[gd_scene format=3 uid="uid://c8ogjwudk4q3t"]
+
+[sub_resource type="GDScript" id="GDScript_uahpa"]
+script/source = "extends Control
+
+@onready var resume_button: Button = $ButtonContainer/ResumeButton
+@onready var restart_button: Button = $ButtonContainer/RestartButton
+@onready var quit_button: Button = $ButtonContainer/QuitButton
+@onready var button_container: VBoxContainer = $ButtonContainer
+
+func _ready() -> void:
+	visible = false
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	
+	# ButtonContainer'ı ekranın ortasına zorla yerleştir
+	button_container.anchor_left = 0.5
+	button_container.anchor_top = 0.5
+	button_container.anchor_right = 0.5
+	button_container.anchor_bottom = 0.5
+	button_container.offset_left = -150
+	button_container.offset_top = -100
+	button_container.offset_right = 150
+	button_container.offset_bottom = 100
+	
+	resume_button.pressed.connect(_on_resume_pressed)
+	restart_button.pressed.connect(_on_restart_pressed)
+	quit_button.pressed.connect(_on_quit_pressed)
+
+
+
+func _input(event: InputEvent) -> void:
+	if event.is_action_pressed(\"ui_cancel\"):
+		toggle_pause()
+	if event is InputEventMouseButton and visible:
+		var mb := event as InputEventMouseButton
+		if mb.pressed:
+			print(\">>> FARE TIKLAMASI:\", mb.position)
+
+
+func toggle_pause() -> void:
+	if get_tree().paused:
+		_resume()
+	else:
+		_pause()
+
+
+func _pause() -> void:
+	get_tree().paused = true
+	visible = true
+	print(\">>> Buton pozisyonları ve boyutları:\")
+	print(\">>>   ResumeButton global_rect: \", resume_button.get_global_rect())
+	print(\">>>   RestartButton global_rect: \", restart_button.get_global_rect())
+	print(\">>>   QuitButton global_rect: \", quit_button.get_global_rect())
+
+
+func _resume() -> void:
+	get_tree().paused = false
+	visible = false
+
+
+func _on_resume_pressed() -> void:
+	print(\">>> RESUME TIKLANDI\")
+	_resume()
+
+
+func _on_restart_pressed() -> void:
+	print(\">>> RESTART TIKLANDI\")
+	get_tree().paused = false
+	get_tree().reload_current_scene()
+
+
+func _on_quit_pressed() -> void:
+	print(\">>> QUIT TIKLANDI\")
+	get_tree().quit()
+"
+
+[node name="PauseMenu" type="Control" unique_id=849025297]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = SubResource("GDScript_uahpa")
+
+[node name="Background" type="ColorRect" parent="." unique_id=1246058835]
+layout_mode = 0
+offset_right = 40.0
+offset_bottom = 40.0
+mouse_filter = 2
+color = Color(0, 0, 0, 0.6)
+
+[node name="ButtonContainer" type="VBoxContainer" parent="." unique_id=395366547]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -58.5
+offset_top = -120.5
+offset_right = 58.5
+offset_bottom = 120.5
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 15
+
+[node name="Title" type="Label" parent="ButtonContainer" unique_id=728795166]
+layout_mode = 2
+theme_override_font_sizes/font_size = 36
+text = "Pause
+"
+horizontal_alignment = 1
+
+[node name="ResumeButton" type="Button" parent="ButtonContainer" unique_id=420234750]
+layout_mode = 2
+text = "Devam Et"
+
+[node name="RestartButton" type="Button" parent="ButtonContainer" unique_id=120759454]
+layout_mode = 2
+text = "Yeniden Başla"
+
+[node name="QuitButton" type="Button" parent="ButtonContainer" unique_id=720960035]
+layout_mode = 2
+text = "Çıkış"

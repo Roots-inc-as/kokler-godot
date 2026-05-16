@@ -9,9 +9,14 @@ extends Node3D
 @onready var camera: Camera3D = $Camera3D
 
 var target: Node3D
+# ─── Kamera shake ───
+@export var shake_decay := 7.0  # Sallantı ne kadar hızlı sönsün
+var shake_strength := 0.0
+var shake_max_offset := 0.35    # Maksimum sallantı mesafesi
 
 
 func _ready() -> void:
+	add_to_group("camera_rig_2_5d")
 	_resolve_target()
 	camera.current = true
 	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
@@ -34,7 +39,17 @@ func _physics_process(delta: float) -> void:
 	global_position = global_position.lerp(desired, minf(delta * follow_speed, 1.0))
 	global_position.y = offset.y
 	rotation = Vector3.ZERO
-	camera.position = Vector3.ZERO
+	# Shake offset uygula
+	if shake_strength > 0.0:
+		shake_strength = maxf(shake_strength - shake_decay * delta, 0.0)
+		var shake_offset := Vector3(
+			randf_range(-1.0, 1.0) * shake_strength * shake_max_offset,
+			randf_range(-1.0, 1.0) * shake_strength * shake_max_offset * 0.5,
+			randf_range(-1.0, 1.0) * shake_strength * shake_max_offset
+		)
+		camera.position = shake_offset
+	else:
+		camera.position = Vector3.ZERO
 	camera.rotation_degrees = fixed_camera_rotation
 
 
@@ -51,3 +66,6 @@ func _desired_position() -> Vector3:
 		offset.y,
 		target.global_position.z + offset.z
 	)
+
+func shake(intensity: float = 1.0) -> void:
+	shake_strength = clampf(shake_strength + intensity, 0.0, 1.5)

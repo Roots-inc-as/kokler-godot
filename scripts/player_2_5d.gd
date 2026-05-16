@@ -115,6 +115,7 @@ func take_damage(amount: int) -> void:
 		return
 
 	current_hp = maxi(current_hp - amount, 0)
+	_trigger_hit_flash()
 	invulnerable_remaining = invulnerable_time
 	health_changed.emit(current_hp, max_hp)
 
@@ -212,6 +213,9 @@ func _damage_enemy(body: Node) -> void:
 	if combo_count == 3:
 		final_damage *= combo_3_damage_multiplier
 	body.take_damage(final_damage)
+	# Combo finisher'da hit pause
+	if combo_count == 3:
+		_hit_pause()
 	
 
 
@@ -284,3 +288,17 @@ func _set_attack_visual_color(color: Color) -> void:
 			if mat:
 				mat.albedo_color = color
 				mat.emission = color
+				
+func _trigger_hit_flash() -> void:
+	var ui_node := get_tree().get_first_node_in_group("ui_2_5d")
+	if ui_node and ui_node.has_method("flash_damage"):
+		ui_node.flash_damage()
+	# Kamera sallandır
+	var cam_rig := get_tree().get_first_node_in_group("camera_rig_2_5d")
+	if cam_rig and cam_rig.has_method("shake"):
+		cam_rig.shake(0.4)
+
+func _hit_pause(duration: float = 0.06, scale: float = 0.05) -> void:
+	Engine.time_scale = scale
+	await get_tree().create_timer(duration, true, false, true).timeout
+	Engine.time_scale = 1.0

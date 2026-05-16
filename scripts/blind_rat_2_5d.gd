@@ -1,7 +1,7 @@
 extends CharacterBody3D
 
 # ─── Stat'lar ───
-@export var max_hp := 2
+@export var max_hp := 3
 @export var move_speed := 2.15
 @export var acceleration := 10.0
 @export var contact_damage := 1
@@ -31,7 +31,12 @@ var idle_direction := Vector3.ZERO
 var lost_timer := 0.0
 var nav_agent: NavigationAgent3D
 var nav_update_timer := 0.0
-
+# ─── Hit feedback ───
+var hit_flash_remaining := 0.0
+var knockback_velocity := Vector3.ZERO
+var knockback_remaining := 0.0
+var original_materials := {}  # MeshInstance3D → orjinal materyal
+var originals_saved := false
 
 func _ready() -> void:
 	add_to_group("blind_rat_2_5d")
@@ -56,6 +61,15 @@ func _physics_process(delta: float) -> void:
 		_find_refs()
 
 	contact_cooldown_remaining = maxf(contact_cooldown_remaining - delta, 0.0)
+	# Hit flash timer
+	if hit_flash_remaining > 0.0:
+		hit_flash_remaining = maxf(hit_flash_remaining - delta, 0.0)
+		if hit_flash_remaining <= 0.0:
+			_reset_hit_flash_color()
+	
+	# Knockback timer
+	if knockback_remaining > 0.0:
+		knockback_remaining = maxf(knockback_remaining - delta, 0.0)
 
 	if target == null or _run_is_locked():
 		velocity = Vector3.ZERO
@@ -76,9 +90,13 @@ func _physics_process(delta: float) -> void:
 		State.LOST:
 			desired_velocity = _lost_movement()
 	
-	# Velocity'i smooth uygula
-	velocity.x = move_toward(velocity.x, desired_velocity.x, acceleration * delta)
-	velocity.z = move_toward(velocity.z, desired_velocity.z, acceleration * delta)
+	# Knockback aktifse normal hareket yerine onu uygula
+	if knockback_remaining > 0.0:
+		velocity.x = knockback_velocity.x
+		velocity.z = knockback_velocity.z
+	else:
+		velocity.x = move_toward(velocity.x, desired_velocity.x, acceleration * delta)
+		velocity.z = move_toward(velocity.z, desired_velocity.z, acceleration * delta)
 	velocity.y = 0.0
 	
 	# Modeli yürüdüğü yöne döndür
@@ -191,10 +209,21 @@ func _lost_movement() -> Vector3:
 # ─── HASAR ───
 func take_damage(amount: int) -> void:
 	current_hp -= amount
-	# Hasar alınca oyuncuyu otomatik fark et (görünmez bir yumruk yedi)
 	if state == State.IDLE:
 		state = State.CHASE
 		print("Rat: hasar aldı, saldırıya geçti")
+	
+	# Kırmızı flash başlat
+	hit_flash_remaining = 0.15
+	_apply_hit_flash_color()
+	
+	# Geri itme — oyuncudan rat'a yönde
+	if target and is_instance_valid(target):
+		var push_dir := global_position - target.global_position
+		push_dir.y = 0.0
+		if push_dir.length() > 0.01:
+			knockback_velocity = push_dir.normalized() * 1.5
+			knockback_remaining = 0.075
 	
 	if current_hp <= 0:
 		queue_free()
@@ -213,3 +242,40 @@ func _run_is_locked() -> bool:
 func _lock_to_ground() -> void:
 	global_position.y = ground_y
 	velocity.y = 0.0
+
+# ─── HIT FLASH RENK ───
+func _apply_hit_flash_color() -> void:
+	_set_model_color(Color(3.0, 0.0, 0.0))
+
+
+func _reset_hit_flash_color() -> void:
+	if model == null:
+		return
+	# Orjinal materyalleri geri yükle
+	for mesh_instance in original_materials:
+		if is_instance_valid(mesh_instance):
+			mesh_instance.material_override = original_materials[mesh_instance]
+
+
+func _set_model_color(color: Color) -> void:
+	if model == null:
+		return
+	_save_original_materials()
+	for child in model.get_children():
+		if child is MeshInstance3D:
+			var mesh_instance := child as MeshInstance3D
+			var mat := StandardMaterial3D.new()
+			mat.albedo_color = color
+			mat.emission_enabled = true
+			mat.emission = color
+			mesh_instance.material_override = mat
+
+func _save_original_materials() -> void:
+	if originals_saved or model == null:
+		return
+	for child in model.get_children():
+		if child is MeshInstance3D:
+			var mesh_instance := child as MeshInstance3D
+			# Mevcut material_override veya null'u kaydet
+			original_materials[mesh_instance] = mesh_instance.material_override
+	originals_saved = true

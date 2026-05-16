@@ -11,7 +11,8 @@ var message_token := 0
 
 
 func _ready() -> void:
-	add_to_group("ui")
+	add_to_group("ui_2_5d")
+	# ... gerisi aynı kalır
 	set_hp(5, 5)
 	set_key_status(false)
 	set_dash_ready(true, 0.0)
@@ -50,3 +51,13 @@ func show_victory(text: String) -> void:
 
 func show_death(text: String) -> void:
 	show_message(text, 1.0)
+
+# ─── HIT FLASH ───
+@onready var hit_flash: ColorRect = %HitFlash
+
+func flash_damage() -> void:
+	if hit_flash == null:
+		return
+	hit_flash.color = Color(1.0, 0.0, 0.0, 0.15)
+	var tween := create_tween()
+	tween.tween_property(hit_flash, "color:a", 0.0, 0.5)
