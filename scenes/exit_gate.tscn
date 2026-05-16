@@ -1,0 +1,22 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/exit_gate.gd" id="1_exit"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_exit"]
+size = Vector2(56, 72)
+
+[node name="ExitGate" type="Area2D"]
+collision_layer = 16
+collision_mask = 2
+script = ExtResource("1_exit")
+
+[node name="Body" type="Polygon2D" parent="."]
+color = Color(0.55, 0.77, 0.66, 0.82)
+polygon = PackedVector2Array(-28, -36, 28, -36, 28, 36, -28, 36)
+
+[node name="InnerDark" type="Polygon2D" parent="."]
+color = Color(0.025, 0.05, 0.045, 1)
+polygon = PackedVector2Array(-17, -25, 17, -25, 17, 34, -17, 34)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("RectangleShape2D_exit")

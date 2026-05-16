@@ -1,0 +1,117 @@
+[gd_scene load_steps=15 format=3]
+
+[ext_resource type="Script" path="res://scripts/player_2_5d.gd" id="1_player"]
+
+[sub_resource type="StandardMaterial3D" id="Material_body"]
+albedo_color = Color(0.82, 0.70, 0.54, 1)
+roughness = 0.92
+
+[sub_resource type="StandardMaterial3D" id="Material_head"]
+albedo_color = Color(0.88, 0.78, 0.62, 1)
+roughness = 0.92
+
+[sub_resource type="StandardMaterial3D" id="Material_cloak"]
+albedo_color = Color(0.16, 0.12, 0.10, 1)
+roughness = 0.96
+
+[sub_resource type="StandardMaterial3D" id="Material_knife"]
+albedo_color = Color(0.62, 0.60, 0.54, 1)
+roughness = 0.82
+
+[sub_resource type="StandardMaterial3D" id="Material_attack"]
+albedo_color = Color(0.72, 0.62, 0.47, 0.45)
+roughness = 0.88
+transparency = 1
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_body"]
+radius = 0.23
+height = 0.95
+radial_segments = 10
+rings = 4
+
+[sub_resource type="SphereMesh" id="SphereMesh_head"]
+radius = 0.21
+height = 0.42
+radial_segments = 10
+rings = 5
+
+[sub_resource type="BoxMesh" id="BoxMesh_cloak"]
+size = Vector3(0.58, 0.72, 0.16)
+
+[sub_resource type="BoxMesh" id="BoxMesh_arm"]
+size = Vector3(0.13, 0.42, 0.12)
+
+[sub_resource type="BoxMesh" id="BoxMesh_knife"]
+size = Vector3(0.08, 0.08, 0.46)
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape_player"]
+radius = 0.25
+height = 1.22
+
+[sub_resource type="BoxShape3D" id="BoxShape_attack"]
+size = Vector3(1.15, 0.9, 1.05)
+
+[sub_resource type="BoxMesh" id="BoxMesh_attack"]
+size = Vector3(1.15, 0.08, 1.05)
+
+[node name="Asha" type="CharacterBody3D"]
+collision_layer = 2
+collision_mask = 1
+script = ExtResource("1_player")
+
+[node name="Model" type="Node3D" parent="."]
+
+[node name="Body" type="MeshInstance3D" parent="Model"]
+position = Vector3(0, 0.64, 0)
+mesh = SubResource("CapsuleMesh_body")
+surface_material_override/0 = SubResource("Material_body")
+
+[node name="Head" type="MeshInstance3D" parent="Model"]
+position = Vector3(0, 1.25, 0.04)
+mesh = SubResource("SphereMesh_head")
+surface_material_override/0 = SubResource("Material_head")
+
+[node name="Cloak" type="MeshInstance3D" parent="Model"]
+position = Vector3(0, 0.66, -0.22)
+rotation = Vector3(0.18, 0, 0)
+mesh = SubResource("BoxMesh_cloak")
+surface_material_override/0 = SubResource("Material_cloak")
+
+[node name="LeftArm" type="MeshInstance3D" parent="Model"]
+position = Vector3(-0.27, 0.72, 0.08)
+rotation = Vector3(0, 0, 0.25)
+mesh = SubResource("BoxMesh_arm")
+surface_material_override/0 = SubResource("Material_body")
+
+[node name="RightArm" type="MeshInstance3D" parent="Model"]
+position = Vector3(0.27, 0.72, 0.08)
+rotation = Vector3(0, 0, -0.25)
+mesh = SubResource("BoxMesh_arm")
+surface_material_override/0 = SubResource("Material_body")
+
+[node name="KnifeForwardMarker" type="MeshInstance3D" parent="Model"]
+position = Vector3(0.28, 0.6, 0.46)
+rotation = Vector3(0, 0.25, 0)
+mesh = SubResource("BoxMesh_knife")
+surface_material_override/0 = SubResource("Material_knife")
+
+[node name="AttackArea" type="Area3D" parent="Model"]
+position = Vector3(0, 0.58, 0.82)
+collision_layer = 0
+collision_mask = 4
+monitoring = false
+monitorable = false
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Model/AttackArea"]
+shape = SubResource("BoxShape_attack")
+disabled = true
+
+[node name="AttackVisual" type="MeshInstance3D" parent="Model/AttackArea"]
+visible = false
+position = Vector3(0, -0.4, 0)
+mesh = SubResource("BoxMesh_attack")
+surface_material_override/0 = SubResource("Material_attack")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+position = Vector3(0, 0.62, 0)
+shape = SubResource("CapsuleShape_player")

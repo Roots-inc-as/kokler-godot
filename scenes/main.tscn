@@ -1,0 +1,22 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/game_manager.gd" id="1_manager"]
+[ext_resource type="Script" path="res://scripts/room_generator.gd" id="2_rooms"]
+[ext_resource type="PackedScene" path="res://scenes/player.tscn" id="3_player"]
+[ext_resource type="PackedScene" path="res://scenes/ui.tscn" id="4_ui"]
+
+[node name="Main" type="Node2D"]
+
+[node name="GameManager" type="Node" parent="."]
+script = ExtResource("1_manager")
+player_path = NodePath("../Player")
+ui_path = NodePath("../UI")
+
+[node name="RoomGenerator" type="Node2D" parent="."]
+script = ExtResource("2_rooms")
+player_path = NodePath("../Player")
+game_manager_path = NodePath("../GameManager")
+
+[node name="Player" parent="." instance=ExtResource("3_player")]
+
+[node name="UI" parent="." instance=ExtResource("4_ui")]
