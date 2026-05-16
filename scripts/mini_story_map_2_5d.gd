@@ -18,6 +18,21 @@ const WALL_THICKNESS := 0.34
 const WALL_HEIGHT := 1.35
 const DOOR_GAP := 2.0
 const FLOOR_THICKNESS := 0.08
+# ─── RASTGELE LAYOUT SABİTLERİ ───
+const ROOM_SPACING_X := 7.5      # Odalar arası yatay mesafe
+const BRANCH_SPACING_Z := 6.5    # Dal odanın derinliği
+const MIN_ROOM_SIZE := Vector2(4.0, 4.0)
+const MAX_ROOM_SIZE := Vector2(5.5, 5.0)
+
+# Oda tipi havuzu — her run'da bunlardan seçilecek
+const ROOM_TYPE_WAKE := "wake"
+const ROOM_TYPE_MAP := "map"
+const ROOM_TYPE_STORAGE := "storage"
+const ROOM_TYPE_SHRINE := "shrine"
+const ROOM_TYPE_KEY := "key"
+const ROOM_TYPE_EXIT := "exit"
+const ROOM_TYPE_LORE := "lore"
+const ROOM_TYPE_EMPTY := "empty"
 
 @export var player_path: NodePath
 
@@ -34,6 +49,8 @@ var has_key := false
 var victory := false
 var restarting := false
 var message_token := 0
+# ─── Rastgele layout için yeni değişkenler ───
+var generated_rooms: Array[Dictionary] = []  # her oda: {id, type, center, size}
 
 var floor_material: StandardMaterial3D
 var corridor_material: StandardMaterial3D
@@ -52,6 +69,7 @@ var sealed_material: StandardMaterial3D
 
 
 func _ready() -> void:
+	print(">>>>>> 2.5D SCRIPT CALISTI <<<<<<")
 	add_to_group("mini_story_manager_2_5d")
 	_resolve_player()
 	_setup_ui()
@@ -158,6 +176,8 @@ func _on_player_dash_cooldown_changed(is_ready: bool, remaining: float) -> void:
 
 
 func _build_story_map() -> void:
+	randomize()
+	
 	var previous := get_node_or_null("GeneratedStoryMap")
 	if previous:
 		previous.queue_free()
@@ -166,125 +186,147 @@ func _build_story_map() -> void:
 	generated_root.name = "GeneratedStoryMap"
 	add_child(generated_root)
 
-	if player:
-		player.global_position = Vector3(0.0, 0.0, 0.0)
-
 	_add_rooms_and_corridors()
-	_add_wake_chamber_props()
-	_add_map_room_props()
-	_add_root_tunnel_props()
-	_add_storage_hollow_props()
-	_add_broken_shrine_props()
-	_add_key_alcove_props()
-	_add_kayip_mahalle_hint_props()
-	_add_lumen_bahcesi_hint_props()
-	_add_sealed_white_door_props()
-	_add_forgotten_exit_props()
-	_add_lore_triggers()
-	_spawn_rats()
-	_add_room_lights()
+	
+	# Oyuncuyu ilk odaya (start) ışınla
+	if player and generated_rooms.size() > 0:
+		var start_center: Vector3 = generated_rooms[0]["center"]
+		player.global_position = Vector3(start_center.x, 0.0, start_center.z)
+	
+	_add_props_per_room()
+	_spawn_random_rats()
+	_spawn_key_in_random_room()
+	_spawn_exit_in_last_room()
+	_add_room_lights_random()
 
 
 func _add_rooms_and_corridors() -> void:
-	_add_room("WakeChamber", Vector2(0.0, 0.0), Vector2(5.2, 4.6), {"right": true})
-	_add_corridor_x("WakeToMapPassage", 2.6, 4.1, 0.0, 1.75)
-	_add_room("FathersMapRoom", Vector2(6.6, 0.0), Vector2(5.0, 4.6), {"left": true, "right": true})
-	_add_corridor_x("MapToRootTunnel", 9.1, 10.6, 0.0, 1.65)
-	_add_room("RootTunnel", Vector2(12.6, 0.0), Vector2(4.0, 6.2), {"left": true, "right": true, "down": true})
-	_add_corridor_z("RootTunnelToStorage", 12.6, 3.1, 4.4, 1.65)
-	_add_room("StorageHollow", Vector2(12.6, 6.2), Vector2(4.0, 3.6), {"up": true})
-	_add_corridor_x("RootTunnelToShrine", 14.6, 16.1, 0.0, 1.65)
-	_add_room("BrokenShrine", Vector2(18.6, 0.0), Vector2(5.0, 4.6), {"left": true, "right": true, "down": true})
-	_add_corridor_z("ShrineToKeyAlcove", 18.6, 2.3, 4.4, 1.65)
-	_add_room("KeyAlcove", Vector2(18.6, 6.1), Vector2(3.8, 3.4), {"up": true})
-	_add_corridor_x("ShrineToKayip", 21.1, 22.35, 0.0, 1.8)
-	_add_room("KayipMahalleHintRoom", Vector2(24.8, 0.0), Vector2(4.9, 4.6), {"left": true, "right": true})
-	_add_corridor_x("KayipToLumen", 27.25, 28.65, 0.0, 1.8)
-	_add_room("LumenBahcesiHintRoom", Vector2(31.1, 0.0), Vector2(4.9, 4.6), {"left": true, "right": true, "down": true})
-	_add_corridor_z("LumenToSealedDoor", 31.1, 2.3, 4.4, 1.65)
-	_add_room("SealedWhiteDoor", Vector2(31.1, 6.1), Vector2(4.0, 3.4), {"up": true})
-	_add_corridor_x("LumenToExit", 33.55, 34.85, 0.0, 1.8)
-	_add_room("ForgottenExit", Vector2(37.3, 0.0), Vector2(4.9, 4.6), {"left": true})
+	generated_rooms.clear()
+	
+	# Kaç oda? 4-6 arası rastgele
+	var room_count := randi_range(4, 6)
+	print(">>> RASTGELE 2.5D LAYOUT: ", room_count, " oda")
+	
+	# Ana koridorda odalar — soldan sağa
+	for i in range(room_count):
+		var room_size := Vector2(
+			randf_range(MIN_ROOM_SIZE.x, MAX_ROOM_SIZE.x),
+			randf_range(MIN_ROOM_SIZE.y, MAX_ROOM_SIZE.y)
+		)
+		var center := Vector3(i * ROOM_SPACING_X, 0.0, 0.0)
+		var room_type := ROOM_TYPE_EMPTY
+		
+		if i == 0:
+			room_type = ROOM_TYPE_WAKE
+		elif i == room_count - 1:
+			room_type = ROOM_TYPE_EXIT
+		else:
+			# Orta odalardan birine rastgele tip ata
+			var middle_types := [ROOM_TYPE_MAP, ROOM_TYPE_STORAGE, ROOM_TYPE_SHRINE, ROOM_TYPE_LORE]
+			room_type = middle_types[randi() % middle_types.size()]
+		
+		generated_rooms.append({
+			"id": "room_%d" % i,
+			"type": room_type,
+			"center": center,
+			"size": room_size,
+			"in_main_chain": true,
+		})
+	
+	# Dal oda — anahtar burada olacak
+	# Ana koridordaki rastgele bir odanın altına (z yönünde)
+	var branch_parent_index := randi_range(1, room_count - 2)
+	var parent_room: Dictionary = generated_rooms[branch_parent_index]
+	var parent_center: Vector3 = parent_room["center"]
+	var branch_center := Vector3(parent_center.x, 0.0, BRANCH_SPACING_Z)
+	var branch_size := Vector2(
+		randf_range(MIN_ROOM_SIZE.x, MAX_ROOM_SIZE.x),
+		randf_range(MIN_ROOM_SIZE.y, MAX_ROOM_SIZE.y)
+	)
+	generated_rooms.append({
+		"id": "branch",
+		"type": ROOM_TYPE_KEY,
+		"center": branch_center,
+		"size": branch_size,
+		"in_main_chain": false,
+		"branch_parent_index": branch_parent_index,
+	})
+	
+	# Şimdi odaları ve koridorları çiz
+	for i in range(generated_rooms.size()):
+		var room: Dictionary = generated_rooms[i]
+		var center: Vector3 = room["center"]
+		var size: Vector2 = room["size"]
+		var openings := _calc_openings_for_room(i)
+		_add_room(
+			room["id"],
+			Vector2(center.x, center.z),
+			size,
+			openings
+		)
+	
+	# Ana koridor bağlantıları
+	for i in range(room_count - 1):
+		var a: Dictionary = generated_rooms[i]
+		var b: Dictionary = generated_rooms[i + 1]
+		var a_center: Vector3 = a["center"]
+		var b_center: Vector3 = b["center"]
+		var a_size: Vector2 = a["size"]
+		var b_size: Vector2 = b["size"]
+		var x_start := a_center.x + a_size.x * 0.5
+		var x_end := b_center.x - b_size.x * 0.5
+		_add_corridor_x("corridor_%d" % i, x_start, x_end, 0.0, 1.7)
+	
+	# Dal koridor bağlantısı
+	var branch: Dictionary = generated_rooms[generated_rooms.size() - 1]
+	var branch_parent: Dictionary = generated_rooms[branch["branch_parent_index"]]
+	var branch_parent_center: Vector3 = branch_parent["center"]
+	var branch_parent_size: Vector2 = branch_parent["size"]
+	var branch_center_vec: Vector3 = branch["center"]
+	var branch_size_vec: Vector2 = branch["size"]
+	var z_start := branch_parent_center.z + branch_parent_size.y * 0.5
+	var z_end := branch_center_vec.z - branch_size_vec.y * 0.5
+	_add_corridor_z("branch_corridor", branch_parent_center.x, z_start, z_end, 1.7)
 
 
-func _add_wake_chamber_props() -> void:
-	_add_visual_box("BrokenWakeSlabA", Vector3(-1.35, 0.035, -1.15), Vector3(1.45, 0.07, 0.7), dark_stone_material)
-	_add_visual_box("BrokenWakeSlabB", Vector3(1.15, 0.04, 1.2), Vector3(1.2, 0.08, 0.9), dark_stone_material)
-	_add_visual_box("CollapsedWakeStone", Vector3(-2.0, 0.18, 1.55), Vector3(0.55, 0.36, 0.42), dark_stone_material)
-	_add_cylinder("WakeRootPillar", Vector3(2.0, 0.62, -1.45), 0.18, 1.25, root_material, Vector3(0.9, 1.0, 0.9))
+# Bir odanın hangi yönlerinin açık olması gerektiğini hesaplar
+func _calc_openings_for_room(index: int) -> Dictionary:
+	var openings := {}
+	var room: Dictionary = generated_rooms[index]
+	var is_branch: bool = not bool(room.get("in_main_chain", true))
+	
+	if is_branch:
+		# Dal oda — sadece yukarı açık (ana koridora doğru)
+		openings["up"] = true
+		return openings
+	
+	var main_chain_count := generated_rooms.size() - 1  # son eleman dal
+	
+	# Ana koridordaki odalar
+	if index > 0:
+		openings["left"] = true
+	if index < main_chain_count - 1:
+		openings["right"] = true
+	
+	# Bu oda dal'ın parent'ı mı?
+	var branch: Dictionary = generated_rooms[generated_rooms.size() - 1]
+	if branch.get("branch_parent_index", -1) == index:
+		openings["down"] = true
+	
+	return openings
 
 
-func _add_map_room_props() -> void:
-	_add_static_box("StoneMapTable", Vector3(6.6, 0.28, 0.15), Vector3(2.1, 0.55, 1.05), dark_stone_material)
-	_add_visual_box("UnfinishedParchmentMap", Vector3(6.6, 0.59, 0.15), Vector3(1.55, 0.035, 0.72), parchment_material)
-	_add_visual_box("MapLineA", Vector3(6.35, 0.625, 0.0), Vector3(0.8, 0.025, 0.04), ink_material)
-	_add_visual_box("MapLineB", Vector3(6.85, 0.626, 0.32), Vector3(0.55, 0.025, 0.04), ink_material)
-	_add_visual_box("MapLineC", Vector3(6.78, 0.627, -0.08), Vector3(0.04, 0.025, 0.5), ink_material)
 
 
-func _add_root_tunnel_props() -> void:
-	_add_cylinder("RootTunnelPillarA", Vector3(11.55, 0.72, -2.25), 0.18, 1.45, root_material, Vector3(0.75, 1.0, 0.75))
-	_add_cylinder("RootTunnelPillarB", Vector3(13.65, 0.72, 2.15), 0.16, 1.45, root_material, Vector3(0.7, 1.0, 0.7))
-	_add_visual_box("TunnelStoneShardA", Vector3(13.55, 0.1, -1.15), Vector3(0.65, 0.2, 0.28), dark_stone_material)
 
 
-func _add_storage_hollow_props() -> void:
-	_add_static_box("StorageCrateA", Vector3(11.6, 0.28, 6.8), Vector3(0.75, 0.55, 0.75), crate_material)
-	_add_static_box("StorageCrateB", Vector3(13.6, 0.22, 5.6), Vector3(0.7, 0.44, 0.65), crate_material)
-	_add_visual_box("StorageBrokenStone", Vector3(12.55, 0.12, 7.2), Vector3(0.9, 0.24, 0.38), dark_stone_material)
 
 
-func _add_broken_shrine_props() -> void:
-	_add_static_box("ShrineOldMarker", Vector3(18.6, 0.65, -1.1), Vector3(0.62, 1.3, 0.32), pale_stone_material)
-	_add_visual_box("ShrineBaseStone", Vector3(18.6, 0.12, -1.1), Vector3(1.25, 0.24, 0.75), dark_stone_material)
-	_add_visual_box("ShrineCollapsedPiece", Vector3(17.25, 0.12, 1.25), Vector3(0.82, 0.24, 0.38), dark_stone_material)
 
 
-func _add_key_alcove_props() -> void:
-	_add_cylinder("KeyAlcoveRootLeft", Vector3(17.75, 0.72, 5.2), 0.18, 1.45, root_material, Vector3(0.75, 1.0, 0.75))
-	_add_cylinder("KeyAlcoveRootRight", Vector3(19.45, 0.72, 5.2), 0.18, 1.45, root_material, Vector3(0.75, 1.0, 0.75))
-	_add_static_box("KeyAlcoveStonePlinth", Vector3(18.6, 0.18, 6.7), Vector3(1.2, 0.36, 0.9), dark_stone_material)
-	_add_key_pickup(Vector3(18.6, 0.75, 6.7))
 
 
-func _add_kayip_mahalle_hint_props() -> void:
-	_add_visual_box("KayipHouseStoneWallA", Vector3(24.0, 0.38, -1.35), Vector3(1.0, 0.76, 0.28), grey_hint_material)
-	_add_visual_box("KayipHouseStoneRoofA", Vector3(24.0, 0.86, -1.35), Vector3(1.25, 0.18, 0.36), grey_hint_material)
-	_add_visual_box("KayipHouseStoneWallB", Vector3(25.7, 0.3, 1.35), Vector3(0.85, 0.6, 0.25), grey_hint_material)
-	_add_visual_box("KayipBrokenStreetStone", Vector3(24.95, 0.08, 0.35), Vector3(1.4, 0.16, 0.35), dark_stone_material)
 
-
-func _add_lumen_bahcesi_hint_props() -> void:
-	_add_lumen_hint(Vector3(30.55, 0.05, 1.35))
-	_add_visual_box("LumenGardenDampStone", Vector3(31.75, 0.08, -1.35), Vector3(1.0, 0.16, 0.42), dark_stone_material)
-
-
-func _add_sealed_white_door_props() -> void:
-	_add_static_box("SealedWhiteDoorFrameLeft", Vector3(30.25, 0.82, 6.85), Vector3(0.42, 1.65, 0.34), sealed_material)
-	_add_static_box("SealedWhiteDoorFrameRight", Vector3(31.95, 0.82, 6.85), Vector3(0.42, 1.65, 0.34), sealed_material)
-	_add_static_box("SealedWhiteDoorLintel", Vector3(31.1, 1.62, 6.85), Vector3(2.1, 0.28, 0.34), sealed_material)
-	_add_visual_box("SealedWhiteDoorCenter", Vector3(31.1, 0.78, 6.78), Vector3(1.08, 1.42, 0.08), pale_stone_material)
-
-
-func _add_forgotten_exit_props() -> void:
-	_add_static_box("ExitLeftPillar", Vector3(36.45, 0.85, -1.25), Vector3(0.42, 1.7, 0.42), pale_stone_material)
-	_add_static_box("ExitRightPillar", Vector3(38.15, 0.85, -1.25), Vector3(0.42, 1.7, 0.42), pale_stone_material)
-	_add_static_box("ExitLintel", Vector3(37.3, 1.72, -1.25), Vector3(2.15, 0.32, 0.42), pale_stone_material)
-	_add_visual_box("PaleExitGlow", Vector3(37.3, 0.82, -1.34), Vector3(1.18, 1.45, 0.08), exit_material)
-	_add_exit_trigger(Vector3(37.3, 0.8, -0.9))
-
-
-func _add_lore_triggers() -> void:
-	_add_lore_trigger("FathersWarningTrigger", Vector3(6.6, 0.7, 0.0), Vector3(4.2, 1.4, 3.8), MAP_MESSAGE)
-	_add_lore_trigger("ShrineLoreTrigger", Vector3(18.6, 0.7, 0.0), Vector3(4.2, 1.4, 3.6), SHRINE_MESSAGE)
-	_add_lore_trigger("SealedDoorLoreTrigger", Vector3(31.1, 0.7, 6.1), Vector3(3.5, 1.4, 3.0), SEALED_DOOR_MESSAGE)
-
-
-func _spawn_rats() -> void:
-	_spawn_rat(Vector3(12.6, 0.0, -1.75))
-	_spawn_rat(Vector3(11.55, 0.0, 6.2))
-	_spawn_rat(Vector3(13.65, 0.0, 6.95))
-	_spawn_rat(Vector3(23.9, 0.0, 1.35))
 
 
 func _spawn_rat(position: Vector3) -> void:
@@ -551,3 +593,138 @@ func _material(color: Color, transparent := false) -> StandardMaterial3D:
 	if transparent:
 		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	return material
+	
+	# ─── RASTGELE SPAWN FONKSIYONLARI ───
+
+func _spawn_random_rats() -> void:
+	for room in generated_rooms:
+		if room["type"] in [ROOM_TYPE_WAKE, ROOM_TYPE_EXIT]:
+			continue  # başlangıç ve çıkışta düşman yok
+		
+		var rat_count := randi_range(1, 2)
+		if room["type"] == ROOM_TYPE_KEY:
+			rat_count = randi_range(2, 3)  # anahtar odasında daha zor
+		
+		var center: Vector3 = room["center"]
+		var size: Vector2 = room["size"]
+		
+		for i in range(rat_count):
+			var offset := Vector3(
+				randf_range(-size.x * 0.3, size.x * 0.3),
+				0.0,
+				randf_range(-size.y * 0.3, size.y * 0.3)
+			)
+			_spawn_rat(center + offset)
+
+
+func _spawn_key_in_random_room() -> void:
+	# Anahtar dal odadadır (zaten type = KEY olarak ayarlandı)
+	for room in generated_rooms:
+		if room["type"] == ROOM_TYPE_KEY:
+			var center: Vector3 = room["center"]
+			_add_key_pickup(Vector3(center.x, 0.75, center.z))
+			break
+
+
+func _spawn_exit_in_last_room() -> void:
+	for room in generated_rooms:
+		if room["type"] == ROOM_TYPE_EXIT:
+			var center: Vector3 = room["center"]
+			var size: Vector2 = room["size"]
+			# Trigger'ı kapının önüne (arka duvardan biraz öne) koy
+			var back_z := -size.y * 0.5 + 0.6
+			_add_exit_trigger(Vector3(center.x, 0.8, center.z + back_z))
+			break
+
+
+func _add_room_lights_random() -> void:
+	for room in generated_rooms:
+		var center: Vector3 = room["center"]
+		var light_color := Color(0.74, 0.48, 0.28, 1.0)  # varsayılan sıcak
+		
+		match room["type"]:
+			ROOM_TYPE_EXIT:
+				light_color = Color(0.55, 0.82, 0.74, 1.0)  # soğuk yeşil
+			ROOM_TYPE_KEY:
+				light_color = Color(0.82, 0.64, 0.42, 1.0)  # altın
+			ROOM_TYPE_LORE:
+				light_color = Color(0.72, 0.52, 0.34, 1.0)  # solgun
+		
+		_add_omni_light(
+			"%sLight" % room["id"],
+			Vector3(center.x, 3.0, center.z),
+			light_color,
+			0.55,
+			6.5)
+			
+func _add_props_per_room() -> void:
+	for room in generated_rooms:
+		var center: Vector3 = room["center"]
+		var size: Vector2 = room["size"]
+		var type: String = room["type"]
+		match type:
+			ROOM_TYPE_WAKE:
+				_props_wake_chamber(center, size)
+			ROOM_TYPE_MAP:
+				_props_map_room(center, size)
+			ROOM_TYPE_STORAGE:
+				_props_storage(center, size)
+			ROOM_TYPE_SHRINE:
+				_props_shrine(center, size)
+			ROOM_TYPE_KEY:
+				_props_key_alcove(center, size)
+			ROOM_TYPE_EXIT:
+				_props_forgotten_exit(center, size)
+			ROOM_TYPE_LORE:
+				_props_lore_room(center, size)
+			_:
+				pass
+
+
+func _props_wake_chamber(center: Vector3, size: Vector2) -> void:
+	_add_visual_box("WakeSlabA", center + Vector3(-1.35, 0.035, -1.15), Vector3(1.45, 0.07, 0.7), dark_stone_material)
+	_add_visual_box("WakeSlabB", center + Vector3(1.15, 0.04, 1.2), Vector3(1.2, 0.08, 0.9), dark_stone_material)
+	_add_visual_box("WakeStone", center + Vector3(-2.0, 0.18, 1.55), Vector3(0.55, 0.36, 0.42), dark_stone_material)
+	_add_cylinder("WakePillar", center + Vector3(2.0, 0.62, -1.45), 0.18, 1.25, root_material, Vector3(0.9, 1.0, 0.9))
+	_add_lore_trigger("WakeLoreTrigger", center + Vector3(0.0, 0.7, 0.0), Vector3(size.x * 0.8, 1.4, size.y * 0.8), "Toprak nefes almıyor. Dinliyor.")
+
+
+func _props_map_room(center: Vector3, size: Vector2) -> void:
+	_add_static_box("MapTable", center + Vector3(0.0, 0.28, 0.15), Vector3(2.1, 0.55, 1.05), dark_stone_material)
+	_add_visual_box("ParchmentMap", center + Vector3(0.0, 0.59, 0.15), Vector3(1.55, 0.035, 0.72), parchment_material)
+	_add_visual_box("MapLineA", center + Vector3(-0.25, 0.625, 0.0), Vector3(0.8, 0.025, 0.04), ink_material)
+	_add_visual_box("MapLineB", center + Vector3(0.25, 0.626, 0.32), Vector3(0.55, 0.025, 0.04), ink_material)
+	_add_visual_box("MapLineC", center + Vector3(0.18, 0.627, -0.08), Vector3(0.04, 0.025, 0.5), ink_material)
+	_add_lore_trigger("MapLoreTrigger", center + Vector3(0.0, 0.7, 0.0), Vector3(size.x * 0.8, 1.4, size.y * 0.8), "Kökaltı gerçek. İnme. Geri dön.")
+
+
+func _props_storage(center: Vector3, size: Vector2) -> void:
+	_add_static_box("CrateA", center + Vector3(-1.0, 0.28, 0.6), Vector3(0.75, 0.55, 0.75), crate_material)
+	_add_static_box("CrateB", center + Vector3(1.0, 0.22, -0.6), Vector3(0.7, 0.44, 0.65), crate_material)
+	_add_visual_box("StorageStone", center + Vector3(0.0, 0.12, 1.0), Vector3(0.9, 0.24, 0.38), dark_stone_material)
+	
+func _props_shrine(center: Vector3, size: Vector2) -> void:
+	_add_static_box("ShrineMarker", center + Vector3(0.0, 0.65, -1.1), Vector3(0.62, 1.3, 0.32), pale_stone_material)
+	_add_visual_box("ShrineBase", center + Vector3(0.0, 0.12, -1.1), Vector3(1.25, 0.24, 0.75), dark_stone_material)
+	_add_visual_box("ShrineRubble", center + Vector3(-1.35, 0.12, 1.25), Vector3(0.82, 0.24, 0.38), dark_stone_material)
+	_add_lore_trigger("ShrineLoreTrigger", center + Vector3(0.0, 0.7, 0.0), Vector3(size.x * 0.8, 1.4, size.y * 0.8), "Haritalar yukaridakiler icindir. Asagida yollar canlidir.")
+
+
+func _props_key_alcove(center: Vector3, size: Vector2) -> void:
+	_add_cylinder("AlcoveRootLeft", center + Vector3(-0.85, 0.72, -0.5), 0.18, 1.45, root_material, Vector3(0.75, 1.0, 0.75))
+	_add_cylinder("AlcoveRootRight", center + Vector3(0.85, 0.72, -0.5), 0.18, 1.45, root_material, Vector3(0.75, 1.0, 0.75))
+	_add_static_box("KeyPlinth", center + Vector3(0.0, 0.18, 0.5), Vector3(1.2, 0.36, 0.9), dark_stone_material)
+
+
+func _props_forgotten_exit(center: Vector3, size: Vector2) -> void:
+	var back_z := -size.y * 0.5 + 0.3
+	_add_static_box("ExitLeftPillar", center + Vector3(-0.85, 0.85, back_z), Vector3(0.42, 1.7, 0.42), pale_stone_material)
+	_add_static_box("ExitRightPillar", center + Vector3(0.85, 0.85, back_z), Vector3(0.42, 1.7, 0.42), pale_stone_material)
+	_add_static_box("ExitLintel", center + Vector3(0.0, 1.72, back_z), Vector3(2.15, 0.32, 0.42), pale_stone_material)
+	_add_visual_box("ExitGlow", center + Vector3(0.0, 0.82, back_z - 0.09), Vector3(1.18, 1.45, 0.08), exit_material)
+
+
+func _props_lore_room(center: Vector3, size: Vector2) -> void:
+	_add_lumen_hint(center + Vector3(-0.5, 0.05, 0.35))
+	_add_visual_box("LoreDampStone", center + Vector3(0.5, 0.08, -0.35), Vector3(1.0, 0.16, 0.42), dark_stone_material)
+	_add_lore_trigger("LoreTrigger", center + Vector3(0.0, 0.7, 0.0), Vector3(size.x * 0.8, 1.4, size.y * 0.8), "Bazi kapilar acilmaz. Seni bekler.")

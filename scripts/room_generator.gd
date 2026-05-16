@@ -39,7 +39,7 @@ func _ready() -> void:
 
 func generate() -> void:
 	lore_shown = false
-	_clear_previous_level()
+	_clear_previous_level()	
 	_define_layout()
 	_create_roots()
 	_create_background()

@@ -1,22 +1,23 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene format=3 uid="uid://by73dbh5cxpta"]
 
-[ext_resource type="Script" path="res://scripts/game_manager.gd" id="1_manager"]
-[ext_resource type="Script" path="res://scripts/room_generator.gd" id="2_rooms"]
+[ext_resource type="Script" uid="uid://chomylka4ro74" path="res://scripts/game_manager.gd" id="1_manager"]
+[ext_resource type="Script" uid="uid://coehyvpqry4dn" path="res://scripts/room_generator.gd" id="2_rooms"]
 [ext_resource type="PackedScene" path="res://scenes/player.tscn" id="3_player"]
 [ext_resource type="PackedScene" path="res://scenes/ui.tscn" id="4_ui"]
 
-[node name="Main" type="Node2D"]
+[node name="Main" type="Node2D" unique_id=1024115619]
 
 [node name="GameManager" type="Node" parent="."]
+[node name="GameManager" type="Node" parent="." unique_id=877879834]
 script = ExtResource("1_manager")
 player_path = NodePath("../Player")
 ui_path = NodePath("../UI")
 
-[node name="RoomGenerator" type="Node2D" parent="."]
+[node name="RoomGenerator" type="Node2D" parent="." unique_id=1697069445]
 script = ExtResource("2_rooms")
 player_path = NodePath("../Player")
 game_manager_path = NodePath("../GameManager")
 
-[node name="Player" parent="." instance=ExtResource("3_player")]
+[node name="Player" parent="." unique_id=1501945652 instance=ExtResource("3_player")]
 
-[node name="UI" parent="." instance=ExtResource("4_ui")]
+[node name="UI" parent="." unique_id=400837276 instance=ExtResource("4_ui")]
