@@ -1,0 +1,19 @@
+Hafta 2 Gün 1 Yapılanlar:
+
+Rastgele oda üretimi — her run'da 4-6 oda farklı dizilimde, dal oda anahtarla, çıkış son odada
+
+Hikaye props sistemi — oda merkezine göre offset, her oda tipi kendi props'larını taşıyor
+
+Düşman AI — idle / chase / lost durumları, mesafe bazlı algılama (5m fark eder, 8m kaybeder)
+
+3'lü kombo sistemi — hareket yavaşlatma, 3. vuruşta görsel + çift hasar
+
+NavigationRegion3D + NavigationAgent3D — rat'lar duvar/props etrafından dolanıyor
+
+Bu Hafta Yapılması Gerekenler: 
+
+Düşman çeşitliliği (farklı canavar tipleri) [Dosyada bulunuyor.]
+
+Loot / upgrade sistemi
+
+2D versiyona da aynı sistemleri eklemek (player.gd, room_generator.gd, blind_rat.gd)
