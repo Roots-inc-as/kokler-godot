@@ -1,5 +1,6 @@
 extends CharacterBody3D
 
+# ─── Stat'lar ───
 @export var max_hp := 2
 @export var move_speed := 2.15
 @export var acceleration := 10.0
@@ -8,12 +9,26 @@ extends CharacterBody3D
 @export var contact_radius := 0.85
 @export var ground_y := 0.0
 
+# ─── AI mesafe ayarları ───
+@export var detect_radius := 5.0          # Bu mesafede oyuncuyu fark eder
+@export var lose_radius := 8.0            # Bu mesafede oyuncuyu kaybeder
+@export var idle_wander_chance := 0.005   # Her frame'de bu olasılıkla rastgele yön değiştirir
+@export var idle_wander_speed := 0.6      # Idle'dayken yürüme hızı
+
 @onready var model: Node3D = $Model
+
+enum State { IDLE, CHASE, LOST }
 
 var current_hp := 0
 var contact_cooldown_remaining := 0.0
 var target: Node3D
 var story_manager: Node
+
+# AI durumu
+var state: int = State.IDLE
+var last_known_player_pos := Vector3.ZERO
+var idle_direction := Vector3.ZERO
+var lost_timer := 0.0
 
 
 func _ready() -> void:
@@ -35,35 +50,120 @@ func _physics_process(delta: float) -> void:
 		move_and_slide()
 		return
 
-	var to_player := target.global_position - global_position
-	to_player.y = 0.0
-	var distance := to_player.length()
+	# AI durumunu güncelle
+	_update_state(delta)
+	
+	# Duruma göre hareket et
 	var desired_velocity := Vector3.ZERO
-	if distance > 0.12:
-		desired_velocity = to_player.normalized() * move_speed
-
+	match state:
+		State.IDLE:
+			desired_velocity = _idle_movement(delta)
+		State.CHASE:
+			desired_velocity = _chase_movement()
+		State.LOST:
+			desired_velocity = _lost_movement()
+	
+	# Velocity'i smooth uygula
 	velocity.x = move_toward(velocity.x, desired_velocity.x, acceleration * delta)
 	velocity.z = move_toward(velocity.z, desired_velocity.z, acceleration * delta)
 	velocity.y = 0.0
-
+	
+	# Modeli yürüdüğü yöne döndür
 	if Vector2(velocity.x, velocity.z).length_squared() > 0.01:
 		model.rotation.y = atan2(velocity.x, velocity.z)
-
+	
 	move_and_slide()
 	_lock_to_ground()
+	
+	# Temas hasarı (sadece CHASE durumundayken)
+	if state == State.CHASE:
+		var distance := target.global_position.distance_to(global_position)
+		if distance <= contact_radius and contact_cooldown_remaining <= 0.0 and target.has_method("take_damage"):
+			contact_cooldown_remaining = contact_damage_cooldown
+			target.take_damage(contact_damage)
 
-	if distance <= contact_radius and contact_cooldown_remaining <= 0.0 and target.has_method("take_damage"):
-		contact_cooldown_remaining = contact_damage_cooldown
-		target.take_damage(contact_damage)
+
+# ─── AI STATE MACHINE ───
+func _update_state(delta: float) -> void:
+	var to_player := target.global_position - global_position
+	to_player.y = 0.0
+	var distance := to_player.length()
+	
+	match state:
+		State.IDLE:
+			# Oyuncu yakına gelirse chase'e geç
+			if distance <= detect_radius:
+				state = State.CHASE
+				print("Rat: oyuncuyu fark etti")
+		
+		State.CHASE:
+			# Oyuncu çok uzaklaşırsa kaybet
+			if distance > lose_radius:
+				state = State.LOST
+				last_known_player_pos = target.global_position
+				lost_timer = 2.0  # 2 saniye son bilinen yere git
+				print("Rat: oyuncuyu kaybetti")
+			else:
+				# Hâlâ görünüyor — son bilinen yeri güncelle
+				last_known_player_pos = target.global_position
+		
+		State.LOST:
+			lost_timer -= delta
+			# Eğer oyuncu tekrar yakına gelirse hemen chase
+			if distance <= detect_radius:
+				state = State.CHASE
+				print("Rat: oyuncuyu tekrar fark etti")
+			elif lost_timer <= 0.0:
+				# Süre bitti, idle'a dön
+				state = State.IDLE
+				idle_direction = Vector3.ZERO
+				print("Rat: arayışı bıraktı")
 
 
+# ─── HAREKET FONKSİYONLARI ───
+func _idle_movement(_delta: float) -> Vector3:
+	# Çoğunlukla yerinde dur, ara sıra rastgele yöne yürü
+	if randf() < idle_wander_chance:
+		var random_angle := randf() * TAU
+		idle_direction = Vector3(cos(random_angle), 0.0, sin(random_angle))
+	
+	# Kısa bir mesafeden sonra yürüyüşü durdur
+	if idle_direction.length_squared() > 0.01 and randf() < 0.01:
+		idle_direction = Vector3.ZERO
+	
+	return idle_direction * idle_wander_speed
+
+
+func _chase_movement() -> Vector3:
+	var to_player := target.global_position - global_position
+	to_player.y = 0.0
+	if to_player.length() > 0.12:
+		return to_player.normalized() * move_speed
+	return Vector3.ZERO
+
+
+func _lost_movement() -> Vector3:
+	# Son bilinen yere git
+	var to_last_pos := last_known_player_pos - global_position
+	to_last_pos.y = 0.0
+	if to_last_pos.length() > 0.3:
+		return to_last_pos.normalized() * move_speed * 0.8  # biraz yavaş
+	return Vector3.ZERO
+
+
+# ─── HASAR ───
 func take_damage(amount: int) -> void:
 	current_hp -= amount
-
+	# Hasar alınca oyuncuyu otomatik fark et (görünmez bir yumruk yedi)
+	if state == State.IDLE:
+		state = State.CHASE
+		print("Rat: hasar aldı, saldırıya geçti")
+	
 	if current_hp <= 0:
 		queue_free()
 
 
+# ─── YARDIMCI ───
 func _find_refs() -> void:
 	target = get_tree().get_first_node_in_group("player_2_5d") as Node3D
 	story_manager = get_tree().get_first_node_in_group("mini_story_manager_2_5d")

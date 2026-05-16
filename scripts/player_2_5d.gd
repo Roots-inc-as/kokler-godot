@@ -13,6 +13,11 @@ signal died
 @export var attack_damage := 1
 @export var attack_cooldown := 0.35
 @export var attack_active_time := 0.12
+# ─── Kombo ayarları ───
+@export var combo_window := 0.7              # Bu süre içinde tekrar saldırırsan kombo devam eder
+@export var combo_slow_factor := 0.2         # Saldırı sırasında hız çarpanı (1.0=normal, 0.0=tam dur)
+@export var combo_3_damage_multiplier := 2   # 3. vuruş kaç kat hasar
+@export var combo_3_visual_scale := 1.6      # 3. vuruş görsel büyüklük çarpanı
 @export var invulnerable_time := 0.45
 @export var ground_y := 0.0
 
@@ -29,6 +34,11 @@ var dash_cooldown_remaining := 0.0
 var attack_cooldown_remaining := 0.0
 var invulnerable_remaining := 0.0
 var hit_targets := {}
+# Kombo durumu
+var combo_count := 0                # 0, 1, 2 — sıradaki vuruşun indexi
+var combo_window_remaining := 0.0   # Kombo penceresinin kalan süresi
+var attacking := false              # Şu an saldırı aktif mi (hareketi yavaşlatmak için)
+var attack_visual_base_scale := Vector3.ONE
 var story_manager: Node
 
 
@@ -42,6 +52,7 @@ func _ready() -> void:
 	attack_area.monitorable = false
 	attack_shape.disabled = true
 	attack_visual.visible = false
+	attack_visual_base_scale = attack_visual.scale
 	attack_area.body_entered.connect(_on_attack_area_body_entered)
 
 	call_deferred("_sync_story_manager")
@@ -80,7 +91,10 @@ func _physics_process(delta: float) -> void:
 		if dash_time_remaining > 0.0:
 			velocity = dash_direction * dash_speed
 		else:
-			var target_velocity := move_direction * move_speed
+			var current_speed := move_speed
+			if attacking:
+				current_speed *= combo_slow_factor
+			var target_velocity := move_direction * current_speed
 			velocity.x = move_toward(velocity.x, target_velocity.x, acceleration * delta)
 			velocity.z = move_toward(velocity.z, target_velocity.z, acceleration * delta)
 
@@ -114,6 +128,10 @@ func _tick_timers(delta: float) -> void:
 	dash_cooldown_remaining = maxf(dash_cooldown_remaining - delta, 0.0)
 	attack_cooldown_remaining = maxf(attack_cooldown_remaining - delta, 0.0)
 	invulnerable_remaining = maxf(invulnerable_remaining - delta, 0.0)
+	combo_window_remaining = maxf(combo_window_remaining - delta, 0.0)
+	# Kombo penceresi kapandıysa sayacı sıfırla
+	if combo_window_remaining <= 0.0:
+		combo_count = 0
 
 
 func _start_dash(move_direction: Vector3) -> void:
@@ -128,20 +146,39 @@ func _start_attack() -> void:
 		return
 
 	attack_cooldown_remaining = attack_cooldown
+	
+	# Kombo sayacını ilerlet
+	combo_count = (combo_count + 1) if combo_window_remaining > 0.0 else 1
+	if combo_count > 3:
+		combo_count = 1
+	combo_window_remaining = combo_window
+	
+	print("Kombo: ", combo_count, "/3")
 	_swing_weapon()
 
 
 func _swing_weapon() -> void:
 	hit_targets.clear()
+	attacking = true
 	attack_area.monitoring = true
 	attack_area.monitorable = true
 	attack_shape.disabled = false
 	attack_visual.visible = true
+	
+	# 3. vuruşta görsel büyüt ve renk değiştir
+	var is_combo_finisher := combo_count == 3
+	if is_combo_finisher:
+		attack_visual.scale = attack_visual_base_scale * combo_3_visual_scale
+		_set_attack_visual_color(Color(1.5, 0.4, 0.4))
+	else:
+		attack_visual.scale = attack_visual_base_scale
+		_set_attack_visual_color(Color(1.0, 1.0, 1.0))
 
 	await get_tree().physics_frame
 	_damage_overlapping_enemies()
 	await get_tree().create_timer(attack_active_time).timeout
 
+	attacking = false
 	if is_instance_valid(attack_area):
 		attack_area.monitoring = false
 		attack_area.monitorable = false
@@ -149,6 +186,7 @@ func _swing_weapon() -> void:
 		attack_shape.disabled = true
 	if is_instance_valid(attack_visual):
 		attack_visual.visible = false
+		attack_visual.scale = attack_visual_base_scale
 
 
 func _damage_overlapping_enemies() -> void:
@@ -170,7 +208,11 @@ func _damage_enemy(body: Node) -> void:
 		return
 
 	hit_targets[body_id] = true
-	body.take_damage(attack_damage)
+	var final_damage := attack_damage
+	if combo_count == 3:
+		final_damage *= combo_3_damage_multiplier
+	body.take_damage(final_damage)
+	
 
 
 func _lock_to_ground() -> void:
@@ -225,3 +267,20 @@ func _add_mouse_action(action_name: StringName, button_index: int) -> void:
 	var event := InputEventMouseButton.new()
 	event.button_index = button_index
 	InputMap.action_add_event(action_name, event)
+	
+
+func _set_attack_visual_color(color: Color) -> void:
+	# AttackVisual'ın materyalini değiştirerek renk veriyoruz
+	if attack_visual is MeshInstance3D:
+		var mesh_instance := attack_visual as MeshInstance3D
+		if mesh_instance.material_override == null:
+			var mat := StandardMaterial3D.new()
+			mat.albedo_color = color
+			mat.emission_enabled = true
+			mat.emission = color
+			mesh_instance.material_override = mat
+		else:
+			var mat := mesh_instance.material_override as StandardMaterial3D
+			if mat:
+				mat.albedo_color = color
+				mat.emission = color
