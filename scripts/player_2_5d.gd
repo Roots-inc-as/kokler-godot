@@ -1,7 +1,10 @@
 extends CharacterBody3D
 
+const WEAPON_MANAGER_SCRIPT := preload("res://scripts/weapon_manager_2_5d.gd")
+
 signal health_changed(current_hp: int, max_hp: int)
 signal dash_cooldown_changed(is_ready: bool, remaining: float)
+signal weapon_changed(display_name: String, slots_text: String)
 signal died
 
 @export var max_hp := 5
@@ -13,11 +16,10 @@ signal died
 @export var attack_damage := 1
 @export var attack_cooldown := 0.35
 @export var attack_active_time := 0.12
-# ─── Kombo ayarları ───
-@export var combo_window := 0.7              # Bu süre içinde tekrar saldırırsan kombo devam eder
-@export var combo_slow_factor := 0.2         # Saldırı sırasında hız çarpanı (1.0=normal, 0.0=tam dur)
-@export var combo_3_damage_multiplier := 2   # 3. vuruş kaç kat hasar
-@export var combo_3_visual_scale := 1.6      # 3. vuruş görsel büyüklük çarpanı
+@export var combo_window := 0.7
+@export var combo_slow_factor := 0.2
+@export var combo_3_damage_multiplier := 2
+@export var combo_3_visual_scale := 1.6
 @export var invulnerable_time := 0.45
 @export var ground_y := 0.0
 
@@ -34,17 +36,19 @@ var dash_cooldown_remaining := 0.0
 var attack_cooldown_remaining := 0.0
 var invulnerable_remaining := 0.0
 var hit_targets := {}
-# Kombo durumu
-var combo_count := 0                # 0, 1, 2 — sıradaki vuruşun indexi
-var combo_window_remaining := 0.0   # Kombo penceresinin kalan süresi
-var attacking := false              # Şu an saldırı aktif mi (hareketi yavaşlatmak için)
+var combo_count := 0
+var combo_window_remaining := 0.0
+var attacking := false
 var attack_visual_base_scale := Vector3.ONE
 var story_manager: Node
+var weapon_manager: WeaponManager25D
+var current_weapon: WeaponData
 
 
 func _ready() -> void:
 	add_to_group("player_2_5d")
 	_ensure_input_actions()
+	_setup_weapon_manager()
 
 	current_hp = max_hp
 	global_position.y = ground_y
@@ -58,6 +62,7 @@ func _ready() -> void:
 	call_deferred("_sync_story_manager")
 	health_changed.emit(current_hp, max_hp)
 	dash_cooldown_changed.emit(true, 0.0)
+	call_deferred("_emit_weapon_state")
 
 
 func _physics_process(delta: float) -> void:
@@ -78,6 +83,8 @@ func _physics_process(delta: float) -> void:
 	if move_direction.length_squared() > 0.001:
 		last_direction = move_direction.normalized()
 		model.rotation.y = atan2(last_direction.x, last_direction.z)
+
+	_handle_weapon_switch_input()
 
 	if Input.is_action_just_pressed("attack"):
 		_start_attack()
@@ -122,7 +129,23 @@ func take_damage(amount: int) -> void:
 	if current_hp <= 0:
 		died.emit()
 		if story_manager and story_manager.has_method("player_died"):
-			story_manager.player_died()
+			story_manager.call("player_died")
+
+
+func add_weapon_to_inventory(weapon_id: String) -> bool:
+	if weapon_manager and weapon_manager.has_method("add_weapon"):
+		var added: bool = weapon_manager.add_weapon(weapon_id)
+		_emit_weapon_state()
+		return added
+	return false
+
+
+func get_weapon_display_name(weapon_id: String) -> String:
+	if weapon_manager and weapon_manager.has_method("get_weapon"):
+		var weapon: WeaponData = weapon_manager.get_weapon(weapon_id)
+		if weapon:
+			return weapon.display_name
+	return weapon_id
 
 
 func _tick_timers(delta: float) -> void:
@@ -130,7 +153,6 @@ func _tick_timers(delta: float) -> void:
 	attack_cooldown_remaining = maxf(attack_cooldown_remaining - delta, 0.0)
 	invulnerable_remaining = maxf(invulnerable_remaining - delta, 0.0)
 	combo_window_remaining = maxf(combo_window_remaining - delta, 0.0)
-	# Kombo penceresi kapandıysa sayacı sıfırla
 	if combo_window_remaining <= 0.0:
 		combo_count = 0
 
@@ -146,48 +168,52 @@ func _start_attack() -> void:
 	if attack_cooldown_remaining > 0.0:
 		return
 
-	attack_cooldown_remaining = attack_cooldown
-	
-	# Kombo sayacını ilerlet
+	var weapon := _get_current_weapon()
+	attack_cooldown_remaining = weapon.attack_cooldown if weapon else attack_cooldown
+
 	combo_count = (combo_count + 1) if combo_window_remaining > 0.0 else 1
 	if combo_count > 3:
 		combo_count = 1
 	combo_window_remaining = combo_window
-	
-	print("Kombo: ", combo_count, "/3")
+
 	_swing_weapon()
 
 
 func _swing_weapon() -> void:
 	hit_targets.clear()
 	attacking = true
-	attack_area.monitoring = true
-	attack_area.monitorable = true
-	attack_shape.disabled = false
-	attack_visual.visible = true
-	
-	# 3. vuruşta görsel büyüt ve renk değiştir
+	var weapon := _get_current_weapon()
 	var is_combo_finisher := combo_count == 3
+
+	_configure_attack_area(weapon)
+	attack_visual.visible = true
+
 	if is_combo_finisher:
 		attack_visual.scale = attack_visual_base_scale * combo_3_visual_scale
 		_set_attack_visual_color(Color(1.5, 0.4, 0.4))
 	else:
 		attack_visual.scale = attack_visual_base_scale
-		_set_attack_visual_color(Color(1.0, 1.0, 1.0))
+		_set_attack_visual_color(weapon.color if weapon else Color(1.0, 1.0, 1.0))
+
+	_animate_attack_visual(weapon, is_combo_finisher)
+
+	if weapon and weapon.is_ranged:
+		attack_area.monitoring = false
+		attack_area.monitorable = false
+		attack_shape.disabled = true
+		_fire_projectile(weapon)
+		await get_tree().create_timer(attack_active_time).timeout
+		_finish_attack()
+		return
+
+	attack_area.monitoring = true
+	attack_area.monitorable = true
+	attack_shape.disabled = false
 
 	await get_tree().physics_frame
 	_damage_overlapping_enemies()
 	await get_tree().create_timer(attack_active_time).timeout
-
-	attacking = false
-	if is_instance_valid(attack_area):
-		attack_area.monitoring = false
-		attack_area.monitorable = false
-	if is_instance_valid(attack_shape):
-		attack_shape.disabled = true
-	if is_instance_valid(attack_visual):
-		attack_visual.visible = false
-		attack_visual.scale = attack_visual_base_scale
+	_finish_attack()
 
 
 func _damage_overlapping_enemies() -> void:
@@ -209,14 +235,118 @@ func _damage_enemy(body: Node) -> void:
 		return
 
 	hit_targets[body_id] = true
-	var final_damage := attack_damage
+	var weapon := _get_current_weapon()
+	var final_damage := weapon.damage if weapon else attack_damage
 	if combo_count == 3:
 		final_damage *= combo_3_damage_multiplier
-	body.take_damage(final_damage)
-	# Combo finisher'da hit pause
+	body.call("take_damage", final_damage)
+	if weapon and body.has_method("apply_knockback"):
+		body.call("apply_knockback", global_position, weapon.knockback)
 	if combo_count == 3:
 		_hit_pause()
-	
+
+
+func _setup_weapon_manager() -> void:
+	weapon_manager = WEAPON_MANAGER_SCRIPT.new() as WeaponManager25D
+	weapon_manager.name = "WeaponManager25D"
+	weapon_manager.weapon_changed.connect(_on_weapon_manager_changed)
+	add_child(weapon_manager)
+	if weapon_manager.has_method("setup_default_weapons"):
+		weapon_manager.setup_default_weapons()
+
+
+func _get_current_weapon() -> WeaponData:
+	if weapon_manager and weapon_manager.has_method("get_current_weapon"):
+		return weapon_manager.get_current_weapon()
+	return null
+
+
+func _handle_weapon_switch_input() -> void:
+	if not weapon_manager:
+		return
+	for i in range(5):
+		if Input.is_action_just_pressed(StringName("weapon_%d" % [i + 1])):
+			weapon_manager.switch_to_slot(i + 1)
+
+
+func _on_weapon_manager_changed(weapon: WeaponData, _owned_weapons: Array[String]) -> void:
+	current_weapon = weapon
+	_emit_weapon_state()
+
+
+func _emit_weapon_state() -> void:
+	var weapon := _get_current_weapon()
+	if not weapon:
+		return
+	var slots_text := ""
+	if weapon_manager and weapon_manager.has_method("get_owned_display_text"):
+		slots_text = weapon_manager.get_owned_display_text()
+	weapon_changed.emit(weapon.display_name, slots_text)
+
+
+func _configure_attack_area(weapon: WeaponData) -> void:
+	var weapon_range := weapon.range if weapon else 1.25
+	if weapon and weapon.is_ranged:
+		weapon_range = 0.9
+	var width := maxf(0.95, weapon_range * 0.72)
+	attack_area.position = Vector3(0.0, 0.58, 0.42 + weapon_range * 0.5)
+	attack_area.rotation = Vector3.ZERO
+	var box_shape := attack_shape.shape as BoxShape3D
+	if box_shape:
+		box_shape.size = Vector3(width, 0.9, weapon_range)
+	var box_mesh := attack_visual.mesh as BoxMesh
+	if box_mesh:
+		box_mesh.size = Vector3(width, 0.08, weapon_range)
+	attack_visual.position = Vector3(0.0, -0.4, 0.0)
+
+
+func _animate_attack_visual(weapon: WeaponData, is_combo_finisher: bool) -> void:
+	if not weapon:
+		return
+	var tween := create_tween()
+	match weapon.animation_style:
+		"heavy":
+			attack_area.rotation.x = -0.65
+			tween.tween_property(attack_area, "rotation:x", 0.35, 0.18)
+		"thrust":
+			attack_visual.position.z = -0.35
+			tween.tween_property(attack_visual, "position:z", 0.28, 0.10)
+		"ember":
+			attack_area.rotation.y = -0.55
+			attack_visual.scale = attack_visual_base_scale * (1.35 if not is_combo_finisher else combo_3_visual_scale)
+			tween.tween_property(attack_area, "rotation:y", 0.55, 0.13)
+		"sling":
+			attack_visual.scale = attack_visual_base_scale * 0.75
+			tween.tween_property(attack_visual, "scale", attack_visual_base_scale * 1.15, 0.08)
+		_:
+			attack_area.rotation.y = -0.45
+			tween.tween_property(attack_area, "rotation:y", 0.45, 0.09)
+
+
+func _fire_projectile(weapon: WeaponData) -> void:
+	if not weapon.projectile_scene:
+		return
+	var projectile := weapon.projectile_scene.instantiate() as Node3D
+	get_tree().current_scene.add_child(projectile)
+	var start_position := global_position + Vector3(0.0, 0.45, 0.0) + last_direction.normalized() * 0.85
+	if projectile.has_method("setup"):
+		projectile.call("setup", start_position, last_direction, weapon.damage, self)
+	else:
+		projectile.global_position = start_position
+
+
+func _finish_attack() -> void:
+	attacking = false
+	if is_instance_valid(attack_area):
+		attack_area.monitoring = false
+		attack_area.monitorable = false
+		attack_area.rotation = Vector3.ZERO
+	if is_instance_valid(attack_shape):
+		attack_shape.disabled = true
+	if is_instance_valid(attack_visual):
+		attack_visual.visible = false
+		attack_visual.scale = attack_visual_base_scale
+		attack_visual.position = Vector3(0.0, -0.4, 0.0)
 
 
 func _lock_to_ground() -> void:
@@ -244,6 +374,8 @@ func _ensure_input_actions() -> void:
 	_add_key_action("dash", KEY_SPACE)
 	_add_key_action("attack", KEY_J)
 	_add_mouse_action("attack", MOUSE_BUTTON_LEFT)
+	for i in range(5):
+		_add_key_action(StringName("weapon_%d" % [i + 1]), KEY_1 + i)
 
 
 func _add_key_action(action_name: StringName, keycode: int) -> void:
@@ -271,10 +403,9 @@ func _add_mouse_action(action_name: StringName, button_index: int) -> void:
 	var event := InputEventMouseButton.new()
 	event.button_index = button_index
 	InputMap.action_add_event(action_name, event)
-	
+
 
 func _set_attack_visual_color(color: Color) -> void:
-	# AttackVisual'ın materyalini değiştirerek renk veriyoruz
 	if attack_visual is MeshInstance3D:
 		var mesh_instance := attack_visual as MeshInstance3D
 		if mesh_instance.material_override == null:
@@ -288,15 +419,13 @@ func _set_attack_visual_color(color: Color) -> void:
 			if mat:
 				mat.albedo_color = color
 				mat.emission = color
-				
+
+
 func _trigger_hit_flash() -> void:
 	var ui_node := get_tree().get_first_node_in_group("ui_2_5d")
 	if ui_node and ui_node.has_method("flash_damage"):
 		ui_node.flash_damage()
-	# Kamera sallandır
-	var cam_rig := get_tree().get_first_node_in_group("camera_rig_2_5d")
-	if cam_rig and cam_rig.has_method("shake"):
-		cam_rig.shake(0.4)
+
 
 func _hit_pause(duration: float = 0.06, scale: float = 0.05) -> void:
 	Engine.time_scale = scale

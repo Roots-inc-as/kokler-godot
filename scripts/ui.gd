@@ -1,21 +1,30 @@
 extends CanvasLayer
 
+const MINIMAP_SCRIPT := preload("res://scripts/minimap_2_5d.gd")
+
 @onready var hp_label: Label = $HPLabel
 @onready var key_label: Label = $KeyLabel
 @onready var dash_label: Label = $DashLabel
+@onready var weapon_label: Label = get_node_or_null("WeaponLabel") as Label
+@onready var root_fragment_label: Label = get_node_or_null("RootFragmentLabel") as Label
+@onready var weapon_slots_label: Label = get_node_or_null("WeaponSlotsLabel") as Label
+@onready var minimap: Control = get_node_or_null("Minimap") as Control
 @onready var message_label: Label = $MessageLabel
 @onready var victory_panel: ColorRect = $VictoryPanel
 @onready var victory_label: Label = $VictoryPanel/VictoryLabel
+@onready var hit_flash: ColorRect = %HitFlash
 
 var message_token := 0
 
 
 func _ready() -> void:
 	add_to_group("ui_2_5d")
-	# ... gerisi aynı kalır
+	_ensure_minimap()
 	set_hp(5, 5)
 	set_key_status(false)
 	set_dash_ready(true, 0.0)
+	set_weapon("Haritacı Bıçağı", "1 Haritacı Bıçağı")
+	set_root_fragments(0)
 	message_label.visible = false
 	victory_panel.visible = false
 
@@ -30,6 +39,36 @@ func set_key_status(has_key: bool) -> void:
 
 func set_dash_ready(is_ready: bool, remaining: float) -> void:
 	dash_label.text = "Dash: Hazır" if is_ready else "Dash: %.1f" % remaining
+
+
+func set_weapon(display_name: String, slots_text := "") -> void:
+	if weapon_label:
+		weapon_label.text = "Silah: " + display_name
+	if weapon_slots_label:
+		weapon_slots_label.text = slots_text
+
+
+func set_root_fragments(count: int) -> void:
+	if root_fragment_label:
+		root_fragment_label.text = "Kök Parçası: %d" % count
+
+
+func setup_minimap(map_data: Dictionary) -> void:
+	_ensure_minimap()
+	if minimap and minimap.has_method("setup_map"):
+		minimap.call("setup_map", map_data)
+
+
+func visit_minimap_room(room_id: String) -> void:
+	_ensure_minimap()
+	if minimap and minimap.has_method("visit_room"):
+		minimap.call("visit_room", room_id)
+
+
+func mark_minimap_uncertain(room_ids: Array) -> void:
+	_ensure_minimap()
+	if minimap and minimap.has_method("mark_uncertain"):
+		minimap.call("mark_uncertain", room_ids)
 
 
 func show_message(text: String, duration := 3.0) -> void:
@@ -52,8 +91,6 @@ func show_victory(text: String) -> void:
 func show_death(text: String) -> void:
 	show_message(text, 1.0)
 
-# ─── HIT FLASH ───
-@onready var hit_flash: ColorRect = %HitFlash
 
 func flash_damage() -> void:
 	if hit_flash == null:
@@ -61,3 +98,11 @@ func flash_damage() -> void:
 	hit_flash.color = Color(1.0, 0.0, 0.0, 0.15)
 	var tween := create_tween()
 	tween.tween_property(hit_flash, "color:a", 0.0, 0.5)
+
+
+func _ensure_minimap() -> void:
+	if minimap:
+		return
+	minimap = MINIMAP_SCRIPT.new() as Control
+	minimap.name = "Minimap"
+	add_child(minimap)

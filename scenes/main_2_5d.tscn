@@ -7,10 +7,10 @@
 
 [sub_resource type="Environment" id="Environment_25d"]
 background_mode = 1
-background_color = Color(0.028, 0.022, 0.018, 1)
+background_color = Color(0.018, 0.014, 0.011, 1)
 ambient_light_source = 3
-ambient_light_color = Color(0.24, 0.2, 0.16, 1)
-ambient_light_energy = 0.48
+ambient_light_color = Color(0.28, 0.22, 0.16, 1)
+ambient_light_energy = 0.58
 
 [node name="Main25D" type="Node3D" unique_id=1515532389]
 script = ExtResource("1_story")
@@ -21,7 +21,8 @@ environment = SubResource("Environment_25d")
 
 [node name="MoonlessDirectionalLight" type="DirectionalLight3D" parent="." unique_id=1795676592]
 transform = Transform3D(0.8525245, -0.42516193, 0.30403835, 0, 0.5816831, 0.8134155, -0.52268726, -0.6934567, 0.4958991, 0, 0, 0)
-light_energy = 0.9
+light_color = Color(1, 0.86, 0.66, 1)
+light_energy = 1.05
 shadow_enabled = true
 
 [node name="Asha" parent="." unique_id=526930997 instance=ExtResource("2_player")]
@@ -29,12 +30,13 @@ shadow_enabled = true
 [node name="CameraRig3D" type="Node3D" parent="." unique_id=505694154]
 script = ExtResource("3_camera")
 target_path = NodePath("../Asha")
-offset = Vector3(0, 15, 11)
-orthographic_size = 17.0
+offset = Vector3(0, 16.5, 12.5)
+follow_speed = 6.0
+orthographic_size = 18.2
 
 [node name="Camera3D" type="Camera3D" parent="CameraRig3D" unique_id=2084025407]
 projection = 1
-size = 17.0
+size = 18.2
 far = 140.0
 
 [node name="UI" type="CanvasLayer" parent="." unique_id=765555937]
@@ -63,6 +65,30 @@ offset_right = 220.0
 offset_bottom = 94.0
 theme_override_colors/font_color = Color(0.86, 0.78, 0.62, 1)
 text = "Dash: Hazır"
+
+[node name="WeaponLabel" type="Label" parent="UI"]
+offset_left = 18.0
+offset_top = 92.0
+offset_right = 360.0
+offset_bottom = 120.0
+theme_override_colors/font_color = Color(0.86, 0.78, 0.62, 1)
+text = "Silah: Haritacı Bıçağı"
+
+[node name="RootFragmentLabel" type="Label" parent="UI"]
+offset_left = 18.0
+offset_top = 118.0
+offset_right = 360.0
+offset_bottom = 146.0
+theme_override_colors/font_color = Color(0.86, 0.78, 0.62, 1)
+text = "Kök Parçası: 0"
+
+[node name="WeaponSlotsLabel" type="Label" parent="UI"]
+offset_left = 18.0
+offset_top = 144.0
+offset_right = 620.0
+offset_bottom = 176.0
+theme_override_colors/font_color = Color(0.72, 0.66, 0.52, 1)
+text = "1 Haritacı Bıçağı"
 
 [node name="MessageLabel" type="Label" parent="UI" unique_id=1711378873]
 visible = false

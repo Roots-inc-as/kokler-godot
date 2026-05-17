@@ -1,0 +1,169 @@
+extends CharacterBody3D
+
+const HEALTH_BAR_SCRIPT := preload("res://scripts/health_bar_3d.gd")
+
+@export var max_hp := 6
+@export var move_speed := 1.15
+@export var attack_range := 1.35
+@export var damage := 2
+@export var attack_cooldown := 1.15
+@export var ground_y := 0.05
+
+var hp := max_hp
+var target: Node3D
+var manager: Node
+var _attack_timer := 0.0
+var _health_bar: HealthBar3D
+var _anim_time := 0.0
+var _base_model_position := Vector3.ZERO
+var _dying := false
+
+@onready var model: Node3D = $Model
+@onready var hit_visual: MeshInstance3D = $Model/HitVisual
+
+
+func _ready() -> void:
+	add_to_group("enemy_2_5d")
+	add_to_group("stone_guard_2_5d")
+	hp = max_hp
+	target = get_tree().get_first_node_in_group("player_2_5d")
+	manager = get_tree().current_scene
+	_anim_time = randf() * TAU
+	if model:
+		_base_model_position = model.position
+	_health_bar = HEALTH_BAR_SCRIPT.new()
+	_health_bar.y_offset = 1.65
+	_health_bar.width = 1.15
+	add_child(_health_bar)
+	_health_bar.set_health(hp, max_hp)
+	if hit_visual:
+		hit_visual.visible = false
+
+
+func _physics_process(delta: float) -> void:
+	if _dying:
+		velocity = Vector3.ZERO
+		global_position.y = ground_y
+		return
+
+	_attack_timer = maxf(_attack_timer - delta, 0.0)
+	if not is_instance_valid(target):
+		target = get_tree().get_first_node_in_group("player_2_5d")
+		velocity = Vector3.ZERO
+		move_and_slide()
+		return
+
+	var to_target := target.global_position - global_position
+	to_target.y = 0.0
+	var distance := to_target.length()
+	var direction := to_target.normalized() if distance > 0.05 else Vector3.ZERO
+
+	if distance > attack_range:
+		velocity = direction * move_speed
+	else:
+		velocity = Vector3.ZERO
+		if _attack_timer <= 0.0:
+			_attack_timer = attack_cooldown
+			_slam()
+
+	move_and_slide()
+	global_position.y = ground_y
+
+	if direction.length_squared() > 0.001:
+		model.look_at(global_position + direction, Vector3.UP)
+	_animate_heavy_idle(delta, velocity.length())
+
+
+func take_damage(amount: int) -> void:
+	if _dying:
+		return
+	var reduced := amount
+	if amount > 1:
+		reduced = max(amount - 1, 1)
+	hp -= reduced
+	_flash_hit()
+	if _health_bar:
+		_health_bar.set_health(hp, max_hp)
+	if hp <= 0:
+		_die()
+
+
+func apply_knockback(from_position: Vector3, force: float) -> void:
+	var away := global_position - from_position
+	away.y = 0.0
+	if away.length_squared() > 0.001:
+		velocity += away.normalized() * force * 0.35
+
+
+func _slam() -> void:
+	if model:
+		var body_tween := create_tween()
+		body_tween.tween_property(model, "scale", Vector3(1.08, 0.92, 1.08), 0.08)
+		body_tween.tween_property(model, "scale", Vector3.ONE, 0.12)
+	if hit_visual:
+		hit_visual.visible = true
+		hit_visual.scale = Vector3(0.4, 0.05, 0.4)
+		var tween := create_tween()
+		tween.tween_property(hit_visual, "scale", Vector3(2.2, 0.05, 2.2), 0.12)
+		tween.tween_callback(func() -> void:
+			if hit_visual:
+				hit_visual.visible = false
+		)
+	if target and target.has_method("take_damage"):
+		target.call("take_damage", damage)
+
+
+func _animate_heavy_idle(delta: float, speed: float) -> void:
+	if not model:
+		return
+	_anim_time += delta * (2.6 if speed > 0.05 else 1.15)
+	model.position = _base_model_position + Vector3(0.0, absf(sin(_anim_time)) * (0.025 if speed > 0.05 else 0.01), 0.0)
+	model.rotation.z = sin(_anim_time) * (0.04 if speed > 0.05 else 0.018)
+
+
+func _flash_hit() -> void:
+	if not model:
+		return
+	var tween := create_tween()
+	tween.tween_property(model, "scale", Vector3(1.04, 0.96, 1.04), 0.05)
+	tween.tween_property(model, "scale", Vector3.ONE, 0.08)
+
+
+func _die() -> void:
+	if _dying:
+		return
+	_dying = true
+	collision_layer = 0
+	collision_mask = 0
+	if manager and manager.has_method("enemy_died"):
+		manager.call("enemy_died", "stone_guard", global_position)
+	if _health_bar:
+		_health_bar.visible = false
+	_spawn_crumble_piece(Vector3(-0.22, 0.4, 0.0))
+	_spawn_crumble_piece(Vector3(0.22, 0.3, 0.08))
+	_spawn_crumble_piece(Vector3(0.0, 0.75, -0.08))
+	var tween := create_tween()
+	tween.tween_property(model, "scale", Vector3(1.15, 0.18, 1.15), 0.24)
+	tween.tween_callback(Callable(self, "queue_free"))
+
+
+func _spawn_crumble_piece(local_offset: Vector3) -> void:
+	var parent: Node = get_parent()
+	if parent == null:
+		return
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(0.18, 0.16, 0.18)
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.34, 0.33, 0.31)
+	mat.roughness = 1.0
+	var piece := MeshInstance3D.new()
+	piece.name = "stone_guard_crumble"
+	piece.mesh = mesh
+	piece.material_override = mat
+	parent.add_child(piece)
+	piece.global_position = global_position + local_offset
+	piece.rotation = Vector3(randf() * 0.6, randf() * TAU, randf() * 0.6)
+	var tween := piece.create_tween()
+	tween.tween_property(piece, "position", piece.position + Vector3(randf_range(-0.35, 0.35), 0.0, randf_range(-0.35, 0.35)), 0.32)
+	tween.parallel().tween_property(piece, "scale", Vector3(0.05, 0.05, 0.05), 0.32)
+	tween.tween_callback(Callable(piece, "queue_free"))

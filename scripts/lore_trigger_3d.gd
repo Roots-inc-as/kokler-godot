@@ -19,5 +19,7 @@ func _on_body_entered(body: Node) -> void:
 
 	triggered = true
 	var story_manager := get_tree().get_first_node_in_group("mini_story_manager_2_5d")
-	if story_manager and story_manager.has_method("show_message"):
-		story_manager.show_message(message, duration)
+	if story_manager and story_manager.has_method("show_lore_message"):
+		story_manager.call("show_lore_message", message, duration)
+	elif story_manager and story_manager.has_method("show_message"):
+		story_manager.call("show_message", message, duration)

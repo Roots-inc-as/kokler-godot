@@ -1,91 +1,107 @@
 extends Node3D
 
-const RAT_SCENE := preload("res://scenes/blind_rat_2_5d.tscn")
-const KEY_SCRIPT := preload("res://scripts/key_pickup_2_5d.gd")
-const EXIT_SCRIPT := preload("res://scripts/exit_gate_2_5d.gd")
-const LORE_SCRIPT := preload("res://scripts/lore_trigger_3d.gd")
+const BLIND_RAT_SCENE := preload("res://scenes/blind_rat_2_5d.tscn")
+const MUSHROOM_MAN_SCENE := preload("res://scenes/mushroom_man_2_5d.tscn")
+const STONE_GUARD_SCENE := preload("res://scenes/stone_guard_2_5d.tscn")
+const ROOT_FRAGMENT_SCENE := preload("res://scenes/root_fragment_pickup_2_5d.tscn")
+const WEAPON_PICKUP_SCENE := preload("res://scenes/weapon_pickup_2_5d.tscn")
+const KEY_PICKUP_SCRIPT := preload("res://scripts/key_pickup_2_5d.gd")
+const EXIT_GATE_SCRIPT := preload("res://scripts/exit_gate_2_5d.gd")
+const LORE_TRIGGER_SCRIPT := preload("res://scripts/lore_trigger_3d.gd")
 
-const WAKE_MESSAGE := "Toprak nefes almıyor. Dinliyor."
-const MAP_MESSAGE := "Kökaltı gerçek. İnme. Geri dön."
-const SHRINE_MESSAGE := "Haritalar yukarıdakiler içindir. Aşağıda yollar canlıdır."
-const KEY_MESSAGE := "Bir kapı açıldı. Bir şey seni içeri saydı."
-const LOCKED_EXIT_MESSAGE := "Anahtar olmadan Kökaltı seni bırakmaz."
-const SEALED_DOOR_MESSAGE := "Bazı kapılar açılmaz. Seni bekler."
-const VICTORY_MESSAGE := "Şimdilik kaçtın. Ama Kökler seni hatırlıyor."
-const DEATH_MESSAGE := "Asha yeniden hatırlıyor..."
+const GRID_SIZE := 10
+const CELL_SPACING := 23.0
+const MIN_ROOMS := 10
+const MAX_ROOMS := 14
+const CORRIDOR_WIDTH := 3.1
+const DOOR_GAP := 3.2
+const WALL_THICKNESS := 0.38
+const WALL_HEIGHT := 1.45
 
-const WALL_THICKNESS := 0.34
-const WALL_HEIGHT := 1.35
-const DOOR_GAP := 2.0
-const FLOOR_THICKNESS := 0.08
-# ─── RASTGELE LAYOUT SABİTLERİ ───
-const ROOM_SPACING_X := 7.5      # Odalar arası yatay mesafe
-const BRANCH_SPACING_Z := 6.5    # Dal odanın derinliği
-const MIN_ROOM_SIZE := Vector2(4.0, 4.0)
-const MAX_ROOM_SIZE := Vector2(5.5, 5.0)
-
-# Oda tipi havuzu — her run'da bunlardan seçilecek
-const ROOM_TYPE_WAKE := "wake"
-const ROOM_TYPE_MAP := "map"
-const ROOM_TYPE_STORAGE := "storage"
-const ROOM_TYPE_SHRINE := "shrine"
-const ROOM_TYPE_KEY := "key"
-const ROOM_TYPE_EXIT := "exit"
-const ROOM_TYPE_LORE := "lore"
-const ROOM_TYPE_EMPTY := "empty"
+# TODO: Future passive item resources can grow from these ids without touching
+# weapon loot. v0.4 only keeps this catalogue as design-facing placeholder data.
+const FUTURE_PASSIVE_ITEM_IDS: Array[String] = [
+	"yara_bezi",
+	"hiz_tasi",
+	"kor_tozu",
+	"kok_gozu",
+	"golge_adimi",
+	"kırık_hafıza",
+	"kok_sarmasi",
+	"keskin_bakis",
+	"unutus_tasi",
+	"olum_yankisi",
+	"kan_pakti",
+	"kor_yurek",
+	"zaman_hirsizi",
+]
 
 @export var player_path: NodePath
+@export var restart_delay := 1.1
+@export var generation_seed := 0
+@export var debug_print_generation := true
+@export var debug_room_labels := false
+@export var start_fullscreen := true
 
-@onready var hp_label: Label = $UI/HPLabel
-@onready var key_label: Label = $UI/KeyLabel
-@onready var dash_label: Label = $UI/DashLabel
-@onready var message_label: Label = $UI/MessageLabel
-@onready var victory_panel: ColorRect = $UI/VictoryPanel
-@onready var victory_label: Label = $UI/VictoryPanel/VictoryLabel
-
-var generated_root: Node3D
-var nav_region: NavigationRegion3D
 var player: Node3D
+var ui: Node
+var dungeon_root: Node3D
 var has_key := false
-var victory := false
-var restarting := false
-var message_token := 0
-# ─── Rastgele layout için yeni değişkenler ───
-var generated_rooms: Array[Dictionary] = []  # her oda: {id, type, center, size}
+var root_fragments := 0
+var run_locked := false
+var puzzle_message_time_msec := -10000
+var current_room_id := ""
+var labyrinth_shift_count := 0
+var puzzle_shift_done := false
+var key_shift_done := false
 
-var floor_material: StandardMaterial3D
-var corridor_material: StandardMaterial3D
-var wall_material: StandardMaterial3D
-var dark_stone_material: StandardMaterial3D
-var root_material: StandardMaterial3D
-var parchment_material: StandardMaterial3D
-var ink_material: StandardMaterial3D
-var crate_material: StandardMaterial3D
-var gold_material: StandardMaterial3D
-var exit_material: StandardMaterial3D
-var pale_stone_material: StandardMaterial3D
-var grey_hint_material: StandardMaterial3D
-var lumen_material: StandardMaterial3D
-var sealed_material: StandardMaterial3D
+var rooms: Dictionary = {}
+var room_order: Array[String] = []
+var cell_to_room_id: Dictionary = {}
+var graph: Dictionary = {}
+var corridor_variants: Dictionary = {}
+var room_enemy_counts: Dictionary = {}
+var discovered_rooms: Dictionary = {}
+var shown_lore_messages: Dictionary = {}
+var mats: Dictionary = {}
+
+var start_cell := Vector2i.ZERO
+var key_cell := Vector2i.ZERO
+var exit_cell := Vector2i.ZERO
+var start_room_id := ""
+var key_room_id := ""
+var exit_room_id := ""
 
 
 func _ready() -> void:
-	print(">>>>>> 2.5D SCRIPT CALISTI <<<<<<")
 	add_to_group("mini_story_manager_2_5d")
-	_resolve_player()
-	_setup_ui()
-	_create_materials()
-	_build_story_map()
-	_wire_player()
-	call_deferred("show_message", WAKE_MESSAGE, 4.0)
+	_apply_startup_presentation()
+	if generation_seed != 0:
+		seed(generation_seed)
+	else:
+		randomize()
+	_build_materials()
+	_connect_player()
+	_build_dungeon()
+	_update_key_ui()
+	_update_root_fragment_ui()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey:
+		var key_event := event as InputEventKey
+		if key_event.pressed and not key_event.echo and key_event.keycode == KEY_F11:
+			_toggle_fullscreen()
+			get_viewport().set_input_as_handled()
 
 
 func collect_key() -> void:
-	if has_key or victory or restarting:
-		return
 	has_key = true
-	key_label.text = "Anahtar: Alındı"
-	show_message(KEY_MESSAGE, 3.5)
+	_update_key_ui()
+	if not key_shift_done:
+		key_shift_done = true
+		call_deferred("_delayed_key_shift")
+	show_message("Bir kapı açıldı. Bir şey seni içeri saydı.", 3.2)
 
 
 func has_player_key() -> bool:
@@ -93,676 +109,1608 @@ func has_player_key() -> bool:
 
 
 func try_exit() -> void:
-	if victory or restarting:
+	if has_key:
+		run_locked = true
+		if ui and ui.has_method("show_victory"):
+			ui.call("show_victory", "Şimdilik kaçtın. Ama Kökler seni hatırlıyor.")
+	else:
+		show_message("Anahtar olmadan Kökaltı seni bırakmaz.", 2.6)
+
+
+func show_message(text: String, duration := 3.0) -> void:
+	if ui and ui.has_method("show_message"):
+		ui.call("show_message", text, duration)
+
+
+func show_lore_message(text: String, duration := 3.0) -> void:
+	if shown_lore_messages.has(text):
 		return
-	if not has_key:
-		show_message(LOCKED_EXIT_MESSAGE, 2.8)
+	shown_lore_messages[text] = true
+	show_message(text, duration)
+
+
+func collect_root_fragment(amount := 1) -> void:
+	root_fragments += max(amount, 0)
+	_update_root_fragment_ui()
+	show_message("Kök Parçası +%d" % amount, 1.5)
+
+
+func collect_weapon(weapon_id: String) -> void:
+	if not player or not player.has_method("add_weapon_to_inventory"):
 		return
 
-	victory = true
-	message_token += 1
-	message_label.visible = false
-	victory_label.text = VICTORY_MESSAGE
-	victory_panel.visible = true
+	var weapon_name := weapon_id
+	if player.has_method("get_weapon_display_name"):
+		weapon_name = player.call("get_weapon_display_name", weapon_id)
+
+	var added: bool = player.call("add_weapon_to_inventory", weapon_id)
+	if added:
+		show_message("Silah bulundu: " + weapon_name, 2.2)
+	else:
+		root_fragments += 1
+		_update_root_fragment_ui()
+		show_message("Zaten vardı. Kök Parçası +1", 1.8)
+
+
+func enemy_died(enemy_type: String, drop_position: Vector3) -> void:
+	var root_chance := 0.45
+	var weapon_chance := 0.08
+	match enemy_type:
+		"mushroom_man":
+			root_chance = 0.60
+			weapon_chance = 0.18
+		"stone_guard":
+			root_chance = 0.80
+			weapon_chance = 0.25
+
+	if randf() <= root_chance:
+		_spawn_root_fragment(drop_position + Vector3(0.25, 0.0, 0.0))
+	if randf() <= weapon_chance:
+		_spawn_weapon_pickup(drop_position + Vector3(-0.25, 0.0, 0.0), _get_random_weapon_id())
+
+	var room_id := _room_id_at_position(drop_position)
+	if not room_id.is_empty() and room_enemy_counts.has(room_id):
+		var remaining: int = maxi(int(room_enemy_counts[room_id]) - 1, 0)
+		room_enemy_counts[room_id] = remaining
+		if remaining == 0 and discovered_rooms.has(room_id):
+			show_message("Oda sustu.", 1.4)
 
 
 func player_died() -> void:
-	if victory or restarting:
+	if run_locked:
 		return
-
-	restarting = true
-	show_message(DEATH_MESSAGE, 1.0)
-	await get_tree().create_timer(1.15).timeout
+	run_locked = true
+	if ui and ui.has_method("show_death"):
+		ui.call("show_death", "Asha Kökaltı'nda kayboldu. Koşu yeniden başlıyor...")
+	await get_tree().create_timer(restart_delay).timeout
 	get_tree().reload_current_scene()
 
 
 func is_run_locked() -> bool:
-	return victory or restarting
+	return run_locked
 
 
-func show_message(text: String, duration := 3.0) -> void:
-	message_token += 1
-	var token := message_token
-	message_label.text = text
-	message_label.visible = true
-	await get_tree().create_timer(duration).timeout
-	if token == message_token and not victory_panel.visible:
-		message_label.visible = false
+func _delayed_key_shift() -> void:
+	await get_tree().create_timer(2.4).timeout
+	if has_key and not run_locked:
+		_trigger_labyrinth_shift(key_room_id, true, "Kökaltı yer değiştirdi.")
 
 
-func _setup_ui() -> void:
-	key_label.text = "Anahtar: Yok"
-	dash_label.text = "Dash: Hazır"
-	message_label.visible = false
-	victory_panel.visible = false
+func _apply_startup_presentation() -> void:
+	if start_fullscreen:
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
 
 
-func _resolve_player() -> void:
-	if not player_path.is_empty():
-		player = get_node_or_null(player_path) as Node3D
-	if player == null:
+func _toggle_fullscreen() -> void:
+	var mode := DisplayServer.window_get_mode()
+	if mode == DisplayServer.WINDOW_MODE_FULLSCREEN or mode == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN:
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+	else:
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+
+
+func _connect_player() -> void:
+	player = get_node_or_null(player_path) as Node3D
+	ui = get_node_or_null("UI")
+	if not player:
 		player = get_tree().get_first_node_in_group("player_2_5d") as Node3D
+	if not ui:
+		ui = get_tree().get_first_node_in_group("ui_2_5d")
 
-
-func _wire_player() -> void:
-	if player == null:
-		return
-
-	if player.has_signal("health_changed"):
-		var health_callable := Callable(self, "_on_player_health_changed")
-		if not player.is_connected("health_changed", health_callable):
-			player.connect("health_changed", health_callable)
-
-	if player.has_signal("dash_cooldown_changed"):
-		var dash_callable := Callable(self, "_on_player_dash_cooldown_changed")
-		if not player.is_connected("dash_cooldown_changed", dash_callable):
-			player.connect("dash_cooldown_changed", dash_callable)
-
-	if player.has_signal("died"):
-		var died_callable := Callable(self, "player_died")
-		if not player.is_connected("died", died_callable):
-			player.connect("died", died_callable)
-
-	if player.has_method("get_health_state"):
-		var health_state: Dictionary = player.get_health_state()
-		_on_player_health_changed(int(health_state.get("current", 0)), int(health_state.get("max", 0)))
+	if player:
+		if player.has_signal("health_changed"):
+			player.connect("health_changed", Callable(self, "_on_player_health_changed"))
+		if player.has_signal("dash_cooldown_changed"):
+			player.connect("dash_cooldown_changed", Callable(self, "_on_dash_cooldown_changed"))
+		if player.has_signal("weapon_changed"):
+			player.connect("weapon_changed", Callable(self, "_on_weapon_changed"))
 
 
 func _on_player_health_changed(current_hp: int, max_hp: int) -> void:
-	hp_label.text = "HP: %d/%d" % [current_hp, max_hp]
+	if ui and ui.has_method("set_hp"):
+		ui.call("set_hp", current_hp, max_hp)
 
 
-func _on_player_dash_cooldown_changed(is_ready: bool, remaining: float) -> void:
-	dash_label.text = "Dash: Hazır" if is_ready else "Dash: %.1f" % remaining
+func _on_dash_cooldown_changed(is_ready: bool, remaining: float) -> void:
+	if ui and ui.has_method("set_dash_ready"):
+		ui.call("set_dash_ready", is_ready, remaining)
 
 
-func _build_story_map() -> void:
-	randomize()
-	
-	var previous := get_node_or_null("GeneratedStoryMap")
-	if previous:
-		previous.queue_free()
-
-	generated_root = Node3D.new()
-	generated_root.name = "GeneratedStoryMap"
-	add_child(generated_root)
-
-	_add_rooms_and_corridors()
-	
-	# Oyuncuyu ilk odaya (start) ışınla
-	if player and generated_rooms.size() > 0:
-		var start_center: Vector3 = generated_rooms[0]["center"]
-		player.global_position = Vector3(start_center.x, 0.0, start_center.z)
-	
-	_add_props_per_room()
-	_spawn_random_rats()
-	_spawn_key_in_random_room()
-	_spawn_exit_in_last_room()
-	_add_room_lights_random()
-	_setup_navigation()
+func _on_weapon_changed(display_name: String, slots_text: String) -> void:
+	if ui and ui.has_method("set_weapon"):
+		ui.call("set_weapon", display_name, slots_text)
 
 
-func _add_rooms_and_corridors() -> void:
-	generated_rooms.clear()
-	
-	# Kaç oda? 4-6 arası rastgele
-	var room_count := randi_range(4, 6)
-	print(">>> RASTGELE 2.5D LAYOUT: ", room_count, " oda")
-	
-	# Ana koridorda odalar — soldan sağa
-	for i in range(room_count):
-		var room_size := Vector2(
-			randf_range(MIN_ROOM_SIZE.x, MAX_ROOM_SIZE.x),
-			randf_range(MIN_ROOM_SIZE.y, MAX_ROOM_SIZE.y)
-		)
-		var center := Vector3(i * ROOM_SPACING_X, 0.0, 0.0)
-		var room_type := ROOM_TYPE_EMPTY
-		
-		if i == 0:
-			room_type = ROOM_TYPE_WAKE
-		elif i == room_count - 1:
-			room_type = ROOM_TYPE_EXIT
-		else:
-			# Orta odalardan birine rastgele tip ata
-			var middle_types := [ROOM_TYPE_MAP, ROOM_TYPE_STORAGE, ROOM_TYPE_SHRINE, ROOM_TYPE_LORE]
-			room_type = middle_types[randi() % middle_types.size()]
-		
-		generated_rooms.append({
-			"id": "room_%d" % i,
-			"type": room_type,
-			"center": center,
-			"size": room_size,
-			"in_main_chain": true,
-		})
-	
-	# Dal oda — anahtar burada olacak
-	# Ana koridordaki rastgele bir odanın altına (z yönünde)
-	var branch_parent_index := randi_range(1, room_count - 2)
-	var parent_room: Dictionary = generated_rooms[branch_parent_index]
-	var parent_center: Vector3 = parent_room["center"]
-	var branch_center := Vector3(parent_center.x, 0.0, BRANCH_SPACING_Z)
-	var branch_size := Vector2(
-		randf_range(MIN_ROOM_SIZE.x, MAX_ROOM_SIZE.x),
-		randf_range(MIN_ROOM_SIZE.y, MAX_ROOM_SIZE.y)
+func _update_key_ui() -> void:
+	if ui and ui.has_method("set_key_status"):
+		ui.call("set_key_status", has_key)
+
+
+func _update_root_fragment_ui() -> void:
+	if ui and ui.has_method("set_root_fragments"):
+		ui.call("set_root_fragments", root_fragments)
+
+
+func _setup_minimap() -> void:
+	if ui and ui.has_method("setup_minimap"):
+		ui.call("setup_minimap", _build_minimap_data())
+
+
+func _discover_room(room_id: String) -> void:
+	if room_id.is_empty() or not rooms.has(room_id):
+		return
+	current_room_id = room_id
+	discovered_rooms[room_id] = true
+	if ui and ui.has_method("visit_minimap_room"):
+		ui.call("visit_minimap_room", room_id)
+
+
+func _mark_minimap_uncertain(room_ids: Array) -> void:
+	if ui and ui.has_method("mark_minimap_uncertain"):
+		ui.call("mark_minimap_uncertain", room_ids)
+
+
+func _build_minimap_data() -> Dictionary:
+	var map_rooms: Dictionary = {}
+	for room_id in room_order:
+		var room: Dictionary = rooms[room_id] as Dictionary
+		var cell: Vector2i = room["cell"]
+		map_rooms[room_id] = {
+			"cell": cell,
+			"type": String(room["type"]),
+			"neighbors": _neighbor_room_ids_for(room_id),
+			"is_start": room_id == start_room_id,
+			"is_key": room_id == key_room_id,
+			"is_exit": room_id == exit_room_id,
+		}
+	return {
+		"rooms": map_rooms,
+		"connections": _connection_pairs(),
+		"start_room_id": start_room_id,
+		"key_room_id": key_room_id,
+		"exit_room_id": exit_room_id,
+	}
+
+
+func _neighbor_room_ids_for(room_id: String) -> Array[String]:
+	var result: Array[String] = []
+	if not rooms.has(room_id):
+		return result
+	var room: Dictionary = rooms[room_id] as Dictionary
+	var cell: Vector2i = room["cell"]
+	var neighbors: Array = graph[cell] as Array
+	for neighbor_variant in neighbors:
+		var neighbor: Vector2i = neighbor_variant
+		if cell_to_room_id.has(neighbor):
+			result.append(String(cell_to_room_id[neighbor]))
+	return result
+
+
+func _connection_pairs() -> Array:
+	var result: Array = []
+	var seen: Dictionary = {}
+	for cell in graph.keys():
+		var room_id: String = String(cell_to_room_id[cell])
+		var neighbors: Array = graph[cell] as Array
+		for neighbor_variant in neighbors:
+			var neighbor: Vector2i = neighbor_variant
+			var other_id: String = String(cell_to_room_id[neighbor])
+			var pair_key := _room_pair_key(room_id, other_id)
+			if seen.has(pair_key):
+				continue
+			seen[pair_key] = true
+			result.append([room_id, other_id])
+	return result
+
+
+func _build_dungeon() -> void:
+	dungeon_root = Node3D.new()
+	dungeon_root.name = "KokTuneliDungeon"
+	add_child(dungeon_root)
+
+	_generate_room_graph()
+	for room_id in room_order:
+		_add_room(room_id)
+		if debug_room_labels:
+			_add_debug_room_label(room_id)
+
+	_add_corridors()
+	_add_room_details()
+	_add_room_entry_triggers()
+	_spawn_room_contents()
+
+	var key_room: Dictionary = rooms[key_room_id] as Dictionary
+	var exit_room: Dictionary = rooms[exit_room_id] as Dictionary
+	_add_key_pickup(_room_point(key_room, 0.0, 0.15, 0.45))
+	_add_exit_gate(_room_point(exit_room, 0.22, 0.0, 0.7))
+
+	if player:
+		var start_room: Dictionary = rooms[start_room_id] as Dictionary
+		player.global_position = _room_point(start_room, 0.0, 0.0, 0.0)
+
+	_setup_minimap()
+	_discover_room(start_room_id)
+
+	if debug_print_generation:
+		print("KÖKLER v0.4 room graph: ", room_order.size(), " rooms | start=", start_room_id, " key=", key_room_id, " exit=", exit_room_id)
+
+	show_lore_message("KAT I — Kök Tüneli\nToprak nefes almıyor. Dinliyor.", 4.0)
+
+
+func _generate_room_graph() -> void:
+	for attempt in range(40):
+		if _try_generate_room_graph():
+			return
+	push_warning("Dungeon generation used fallback graph.")
+	_build_fallback_graph()
+
+
+func _try_generate_room_graph() -> bool:
+	rooms.clear()
+	room_order.clear()
+	cell_to_room_id.clear()
+	graph.clear()
+	corridor_variants.clear()
+	room_enemy_counts.clear()
+	discovered_rooms.clear()
+	current_room_id = ""
+	puzzle_shift_done = false
+
+	var used: Dictionary = {}
+	var room_cells: Array[Vector2i] = []
+	start_cell = Vector2i(4 + randi_range(-1, 1), 7 + randi_range(-1, 0))
+	_add_graph_cell(start_cell, used, room_cells)
+
+	var current := start_cell
+	var main_path: Array[Vector2i] = [start_cell]
+	var main_length := randi_range(7, 9)
+	for i in range(main_length - 1):
+		var candidates: Array[Vector2i] = _unused_neighbors(current, used)
+		if candidates.is_empty():
+			return false
+		var next_cell := _choose_walk_neighbor(candidates, current, start_cell)
+		_add_graph_cell(next_cell, used, room_cells)
+		_connect_cells(current, next_cell)
+		main_path.append(next_cell)
+		current = next_cell
+
+	var target_room_count := randi_range(MIN_ROOMS, MAX_ROOMS)
+	var branch_sources: Array[Vector2i] = main_path.duplicate()
+	branch_sources.shuffle()
+	for source_cell in branch_sources:
+		if room_cells.size() >= target_room_count:
+			break
+		if source_cell == start_cell:
+			continue
+		_try_add_branch(source_cell, used, room_cells, randi_range(1, 2), target_room_count)
+
+	var guard := 0
+	while room_cells.size() < MIN_ROOMS and guard < 30:
+		guard += 1
+		var source: Vector2i = room_cells.pick_random()
+		_try_add_branch(source, used, room_cells, 1, target_room_count)
+
+	if randf() < 0.75:
+		_try_add_loop_connection(room_cells)
+
+	if room_cells.size() < MIN_ROOMS or room_cells.size() > MAX_ROOMS:
+		return false
+
+	exit_cell = _farthest_cell_from(start_cell)
+	var distances_from_start: Dictionary = _distances_from(start_cell)
+	var distances_from_exit: Dictionary = _distances_from(exit_cell)
+	var exit_distance: int = int(distances_from_start.get(exit_cell, 0))
+	if exit_distance < 6:
+		return false
+	key_cell = _choose_key_cell(room_cells, distances_from_start, distances_from_exit, exit_distance)
+	if key_cell == Vector2i.ZERO or key_cell == start_cell or key_cell == exit_cell:
+		return false
+	if int(distances_from_start.get(key_cell, 0)) < 3 or int(distances_from_exit.get(key_cell, 0)) < 2:
+		return false
+
+	_assign_rooms(room_cells, distances_from_start)
+	return true
+
+
+func _build_fallback_graph() -> void:
+	rooms.clear()
+	room_order.clear()
+	cell_to_room_id.clear()
+	graph.clear()
+	corridor_variants.clear()
+	discovered_rooms.clear()
+	current_room_id = ""
+	var used: Dictionary = {}
+	var room_cells: Array[Vector2i] = []
+	start_cell = Vector2i(4, 7)
+	var path: Array[Vector2i] = [
+		start_cell,
+		Vector2i(4, 6),
+		Vector2i(5, 6),
+		Vector2i(5, 5),
+		Vector2i(6, 5),
+		Vector2i(6, 4),
+		Vector2i(7, 4),
+		Vector2i(7, 3),
+	]
+	for i in range(path.size()):
+		_add_graph_cell(path[i], used, room_cells)
+		if i > 0:
+			_connect_cells(path[i - 1], path[i])
+	var branches: Array[Vector2i] = [Vector2i(3, 6), Vector2i(5, 7), Vector2i(6, 6), Vector2i(8, 4)]
+	for branch_cell in branches:
+		_add_graph_cell(branch_cell, used, room_cells)
+		var nearest := _nearest_existing_neighbor(branch_cell, used)
+		_connect_cells(branch_cell, nearest)
+	_try_add_loop_connection(room_cells)
+	exit_cell = path[path.size() - 1]
+	key_cell = Vector2i(6, 6)
+	var distances: Dictionary = _distances_from(start_cell)
+	_assign_rooms(room_cells, distances)
+
+
+func _add_graph_cell(cell: Vector2i, used: Dictionary, room_cells: Array[Vector2i]) -> void:
+	used[cell] = true
+	if not graph.has(cell):
+		graph[cell] = []
+	if not room_cells.has(cell):
+		room_cells.append(cell)
+
+
+func _connect_cells(a: Vector2i, b: Vector2i) -> void:
+	if not graph.has(a):
+		graph[a] = []
+	if not graph.has(b):
+		graph[b] = []
+	var a_neighbors: Array = graph[a] as Array
+	var b_neighbors: Array = graph[b] as Array
+	if not a_neighbors.has(b):
+		a_neighbors.append(b)
+	if not b_neighbors.has(a):
+		b_neighbors.append(a)
+	graph[a] = a_neighbors
+	graph[b] = b_neighbors
+
+
+func _unused_neighbors(cell: Vector2i, used: Dictionary) -> Array[Vector2i]:
+	var result: Array[Vector2i] = []
+	var directions: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
+	for direction in directions:
+		var next_cell := cell + direction
+		if _cell_in_bounds(next_cell) and not used.has(next_cell):
+			result.append(next_cell)
+	return result
+
+
+func _cell_in_bounds(cell: Vector2i) -> bool:
+	return cell.x >= 1 and cell.x < GRID_SIZE - 1 and cell.y >= 1 and cell.y < GRID_SIZE - 1
+
+
+func _choose_walk_neighbor(candidates: Array[Vector2i], current: Vector2i, origin: Vector2i) -> Vector2i:
+	var weights: Array[float] = []
+	var total_weight := 0.0
+	for cell in candidates:
+		var weight := 1.0 + float(_manhattan(cell, origin)) * 0.65
+		if cell.y < current.y:
+			weight += 1.25
+		if abs(cell.x - origin.x) > 1:
+			weight += 0.35
+		weights.append(weight)
+		total_weight += weight
+	var roll := randf() * total_weight
+	var cursor := 0.0
+	for i in range(candidates.size()):
+		cursor += weights[i]
+		if roll <= cursor:
+			return candidates[i]
+	return candidates[candidates.size() - 1]
+
+
+func _try_add_branch(source: Vector2i, used: Dictionary, room_cells: Array[Vector2i], branch_length: int, target_count: int) -> bool:
+	var current := source
+	var added := false
+	for i in range(branch_length):
+		if room_cells.size() >= target_count:
+			break
+		var candidates: Array[Vector2i] = _unused_neighbors(current, used)
+		if candidates.is_empty():
+			break
+		candidates.shuffle()
+		var next_cell: Vector2i = candidates[0]
+		_add_graph_cell(next_cell, used, room_cells)
+		_connect_cells(current, next_cell)
+		current = next_cell
+		added = true
+	return added
+
+
+func _try_add_loop_connection(room_cells: Array[Vector2i]) -> bool:
+	var candidates: Array = []
+	var room_lookup: Dictionary = {}
+	for cell in room_cells:
+		room_lookup[cell] = true
+	for cell in room_cells:
+		var directions: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
+		for direction in directions:
+			var neighbor := cell + direction
+			if not room_lookup.has(neighbor):
+				continue
+			var neighbors: Array = graph[cell] as Array
+			if neighbors.has(neighbor):
+				continue
+			if cell == start_cell or neighbor == start_cell:
+				continue
+			candidates.append([cell, neighbor])
+	if candidates.is_empty():
+		return false
+	candidates.shuffle()
+	var pair: Array = candidates[0]
+	var a_cell: Vector2i = pair[0]
+	var b_cell: Vector2i = pair[1]
+	_connect_cells(a_cell, b_cell)
+	return true
+
+
+func _nearest_existing_neighbor(cell: Vector2i, used: Dictionary) -> Vector2i:
+	var directions: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
+	for direction in directions:
+		var neighbor := cell + direction
+		if used.has(neighbor):
+			return neighbor
+	return start_cell
+
+
+func _farthest_cell_from(origin: Vector2i) -> Vector2i:
+	var distances: Dictionary = _distances_from(origin)
+	var best := origin
+	var best_distance := -1
+	for cell in distances.keys():
+		var distance: int = int(distances[cell])
+		if distance > best_distance:
+			best_distance = distance
+			best = cell
+	return best
+
+
+func _choose_key_cell(room_cells: Array[Vector2i], distances_from_start: Dictionary, distances_from_exit: Dictionary, exit_distance: int) -> Vector2i:
+	var candidates: Array[Vector2i] = []
+	for cell in room_cells:
+		if cell == start_cell or cell == exit_cell:
+			continue
+		var start_distance: int = int(distances_from_start.get(cell, 0))
+		var exit_distance_to_cell: int = int(distances_from_exit.get(cell, 0))
+		if start_distance >= max(3, exit_distance / 2) and exit_distance_to_cell >= 2:
+			candidates.append(cell)
+	if candidates.is_empty():
+		return Vector2i.ZERO
+	var best: Vector2i = candidates[0]
+	var best_score := -9999.0
+	for cell in candidates:
+		var score: float = float(int(distances_from_start.get(cell, 0))) * 1.3 + float(int(distances_from_exit.get(cell, 0))) * 0.45
+		if _is_leaf(cell):
+			score += 1.5
+		score += randf() * 0.5
+		if score > best_score:
+			best_score = score
+			best = cell
+	return best
+
+
+func _distances_from(origin: Vector2i) -> Dictionary:
+	var distances: Dictionary = {origin: 0}
+	var queue: Array[Vector2i] = [origin]
+	while not queue.is_empty():
+		var current: Vector2i = queue.pop_front()
+		var current_distance: int = int(distances[current])
+		var neighbors: Array = graph[current] as Array
+		for neighbor_variant in neighbors:
+			var neighbor: Vector2i = neighbor_variant
+			if not distances.has(neighbor):
+				distances[neighbor] = current_distance + 1
+				queue.append(neighbor)
+	return distances
+
+
+func _manhattan(a: Vector2i, b: Vector2i) -> int:
+	return absi(a.x - b.x) + absi(a.y - b.y)
+
+
+func _is_leaf(cell: Vector2i) -> bool:
+	var neighbors: Array = graph[cell] as Array
+	return neighbors.size() <= 1
+
+
+func _assign_rooms(room_cells: Array[Vector2i], distances_from_start: Dictionary) -> void:
+	room_cells.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return int(distances_from_start.get(a, 0)) < int(distances_from_start.get(b, 0))
 	)
-	generated_rooms.append({
-		"id": "branch",
-		"type": ROOM_TYPE_KEY,
-		"center": branch_center,
-		"size": branch_size,
-		"in_main_chain": false,
-		"branch_parent_index": branch_parent_index,
-	})
-	
-	# Şimdi odaları ve koridorları çiz
-	for i in range(generated_rooms.size()):
-		var room: Dictionary = generated_rooms[i]
-		var center: Vector3 = room["center"]
-		var size: Vector2 = room["size"]
-		var openings := _calc_openings_for_room(i)
-		_add_room(
-			room["id"],
-			Vector2(center.x, center.z),
-			size,
-			openings
-		)
-	
-	# Ana koridor bağlantıları
-	for i in range(room_count - 1):
-		var a: Dictionary = generated_rooms[i]
-		var b: Dictionary = generated_rooms[i + 1]
-		var a_center: Vector3 = a["center"]
-		var b_center: Vector3 = b["center"]
-		var a_size: Vector2 = a["size"]
-		var b_size: Vector2 = b["size"]
-		var x_start := a_center.x + a_size.x * 0.5
-		var x_end := b_center.x - b_size.x * 0.5
-		_add_corridor_x("corridor_%d" % i, x_start, x_end, 0.0, 1.7)
-	
-	# Dal koridor bağlantısı
-	var branch: Dictionary = generated_rooms[generated_rooms.size() - 1]
-	var branch_parent: Dictionary = generated_rooms[branch["branch_parent_index"]]
-	var branch_parent_center: Vector3 = branch_parent["center"]
-	var branch_parent_size: Vector2 = branch_parent["size"]
-	var branch_center_vec: Vector3 = branch["center"]
-	var branch_size_vec: Vector2 = branch["size"]
-	var z_start := branch_parent_center.z + branch_parent_size.y * 0.5
-	var z_end := branch_center_vec.z - branch_size_vec.y * 0.5
-	_add_corridor_z("branch_corridor", branch_parent_center.x, z_start, z_end, 1.7)
+
+	var special_types: Dictionary = {}
+	special_types[start_cell] = "wake"
+	special_types[key_cell] = "key_alcove"
+	special_types[exit_cell] = "forgotten_exit"
+	_assign_special_room(special_types, room_cells, "fathers_map_room", 1, 3)
+	_assign_special_room(special_types, room_cells, "shifting_root_gate", 2, 8)
+	_assign_special_room(special_types, room_cells, "broken_shrine", 3, 7)
+	_assign_special_leaf_room(special_types, room_cells, "loot_niche")
+	_assign_special_leaf_room(special_types, room_cells, "sealed_white_door")
+	_assign_special_room(special_types, room_cells, "stone_watch_room", 4, 9)
+	_assign_special_room(special_types, room_cells, "mushroom_cellar", 3, 9)
+	_assign_special_room(special_types, room_cells, "rat_nest", 2, 8)
+
+	for i in range(room_cells.size()):
+		var cell: Vector2i = room_cells[i]
+		var room_id := "room_%02d" % i
+		if cell == start_cell:
+			room_id = "wake_chamber"
+		elif cell == key_cell:
+			room_id = "key_alcove"
+		elif cell == exit_cell:
+			room_id = "forgotten_exit"
+
+		cell_to_room_id[cell] = room_id
+		room_order.append(room_id)
+
+	for cell in room_cells:
+		var room_id: String = String(cell_to_room_id[cell])
+		var room_type := "root_tunnel"
+		if special_types.has(cell):
+			room_type = String(special_types[cell])
+		else:
+			room_type = _choose_filler_room_type(cell)
+		var room: Dictionary = {
+			"id": room_id,
+			"type": room_type,
+			"cell": cell,
+			"center": _cell_to_world(cell),
+			"size": _size_for_room_type(room_type),
+			"openings": _openings_for_cell(cell),
+		}
+		rooms[room_id] = room
+		room_enemy_counts[room_id] = 0
+
+	start_room_id = String(cell_to_room_id[start_cell])
+	key_room_id = String(cell_to_room_id[key_cell])
+	exit_room_id = String(cell_to_room_id[exit_cell])
 
 
-# Bir odanın hangi yönlerinin açık olması gerektiğini hesaplar
-func _calc_openings_for_room(index: int) -> Dictionary:
-	var openings := {}
-	var room: Dictionary = generated_rooms[index]
-	var is_branch: bool = not bool(room.get("in_main_chain", true))
-	
-	if is_branch:
-		# Dal oda — sadece yukarı açık (ana koridora doğru)
-		openings["up"] = true
-		return openings
-	
-	var main_chain_count := generated_rooms.size() - 1  # son eleman dal
-	
-	# Ana koridordaki odalar
-	if index > 0:
-		openings["left"] = true
-	if index < main_chain_count - 1:
-		openings["right"] = true
-	
-	# Bu oda dal'ın parent'ı mı?
-	var branch: Dictionary = generated_rooms[generated_rooms.size() - 1]
-	if branch.get("branch_parent_index", -1) == index:
-		openings["down"] = true
-	
+func _assign_special_room(special_types: Dictionary, room_cells: Array[Vector2i], room_type: String, min_distance: int, max_distance: int) -> void:
+	var candidates: Array[Vector2i] = []
+	var distances: Dictionary = _distances_from(start_cell)
+	for cell in room_cells:
+		if special_types.has(cell) or cell == start_cell or cell == key_cell or cell == exit_cell:
+			continue
+		var distance: int = int(distances.get(cell, 0))
+		if distance >= min_distance and distance <= max_distance:
+			candidates.append(cell)
+	if candidates.is_empty():
+		candidates = _available_special_cells(special_types, room_cells)
+	if candidates.is_empty():
+		return
+	candidates.shuffle()
+	special_types[candidates[0]] = room_type
+
+
+func _assign_special_leaf_room(special_types: Dictionary, room_cells: Array[Vector2i], room_type: String) -> void:
+	var candidates: Array[Vector2i] = []
+	for cell in room_cells:
+		if special_types.has(cell) or cell == start_cell or cell == key_cell or cell == exit_cell:
+			continue
+		if _is_leaf(cell):
+			candidates.append(cell)
+	if candidates.is_empty():
+		_assign_special_room(special_types, room_cells, room_type, 2, 9)
+		return
+	candidates.shuffle()
+	special_types[candidates[0]] = room_type
+
+
+func _available_special_cells(special_types: Dictionary, room_cells: Array[Vector2i]) -> Array[Vector2i]:
+	var candidates: Array[Vector2i] = []
+	for cell in room_cells:
+		if not special_types.has(cell) and cell != start_cell and cell != key_cell and cell != exit_cell:
+			candidates.append(cell)
+	return candidates
+
+
+func _choose_filler_room_type(cell: Vector2i) -> String:
+	var roll := randf()
+	if _is_leaf(cell) and roll < 0.35:
+		return "loot_niche"
+	if roll < 0.38:
+		return "root_tunnel"
+	if roll < 0.62:
+		return "rat_nest"
+	if roll < 0.82:
+		return "mushroom_cellar"
+	return "stone_watch_room"
+
+
+func _cell_to_world(cell: Vector2i) -> Vector3:
+	return Vector3(float(cell.x - start_cell.x) * CELL_SPACING, 0.0, float(cell.y - start_cell.y) * CELL_SPACING)
+
+
+func _size_for_room_type(room_type: String) -> Vector2:
+	match room_type:
+		"wake", "fathers_map_room", "broken_shrine", "key_alcove":
+			return Vector2(randf_range(13.0, 15.5), randf_range(9.2, 11.0))
+		"shifting_root_gate":
+			return Vector2(randf_range(14.0, 16.0), randf_range(9.5, 11.0))
+		"stone_watch_room", "forgotten_exit":
+			return Vector2(randf_range(18.0, 19.6), randf_range(12.0, 13.2))
+		"root_tunnel":
+			return Vector2(randf_range(8.2, 10.0), randf_range(6.8, 8.2))
+		"loot_niche", "sealed_white_door":
+			return Vector2(randf_range(9.2, 11.5), randf_range(7.0, 9.0))
+		"rat_nest", "mushroom_cellar":
+			return Vector2(randf_range(13.0, 15.5), randf_range(9.5, 11.2))
+		_:
+			return Vector2(randf_range(12.0, 15.0), randf_range(8.5, 10.8))
+
+
+func _openings_for_cell(cell: Vector2i) -> Array[String]:
+	var openings: Array[String] = []
+	var neighbors: Array = graph[cell] as Array
+	for neighbor_variant in neighbors:
+		var neighbor: Vector2i = neighbor_variant
+		var delta := neighbor - cell
+		if delta == Vector2i(1, 0):
+			openings.append("east")
+		elif delta == Vector2i(-1, 0):
+			openings.append("west")
+		elif delta == Vector2i(0, 1):
+			openings.append("south")
+		elif delta == Vector2i(0, -1):
+			openings.append("north")
 	return openings
 
 
+func _add_room(room_id: String) -> void:
+	var room: Dictionary = rooms[room_id] as Dictionary
+	var center: Vector3 = room["center"]
+	var size: Vector2 = room["size"]
+	var room_type: String = room["type"]
+	var floor_mat: Material = _floor_material_for_type(room_type)
+	_add_box(dungeon_root, room_id + "_floor", Vector3(center.x, -0.08, center.z), Vector3(size.x, 0.16, size.y), floor_mat)
+	_add_room_walls(room_id, center, size, room["openings"] as Array)
 
 
+func _floor_material_for_type(room_type: String) -> Material:
+	match room_type:
+		"mushroom_cellar":
+			return _mat("floor_green")
+		"shifting_root_gate":
+			return _mat("floor_root")
+		"sealed_white_door", "forgotten_exit":
+			return _mat("floor_cold")
+		"rat_nest":
+			return _mat("floor_root")
+		_:
+			return _mat("floor")
 
 
+func _add_room_walls(room_id: String, center: Vector3, size: Vector2, openings: Array) -> void:
+	var wall_mat: Material = _mat("wall")
+	var north := Vector3(center.x, WALL_HEIGHT * 0.5, center.z - size.y * 0.5)
+	var south := Vector3(center.x, WALL_HEIGHT * 0.5, center.z + size.y * 0.5)
+	var west := Vector3(center.x - size.x * 0.5, WALL_HEIGHT * 0.5, center.z)
+	var east := Vector3(center.x + size.x * 0.5, WALL_HEIGHT * 0.5, center.z)
+
+	if openings.has("north"):
+		_add_wall_with_opening(room_id + "_north", north, Vector3(size.x, WALL_HEIGHT, WALL_THICKNESS), "x", wall_mat)
+	else:
+		_add_box(dungeon_root, room_id + "_north", north, Vector3(size.x, WALL_HEIGHT, WALL_THICKNESS), wall_mat, true)
+	if openings.has("south"):
+		_add_wall_with_opening(room_id + "_south", south, Vector3(size.x, WALL_HEIGHT, WALL_THICKNESS), "x", wall_mat)
+	else:
+		_add_box(dungeon_root, room_id + "_south", south, Vector3(size.x, WALL_HEIGHT, WALL_THICKNESS), wall_mat, true)
+	if openings.has("west"):
+		_add_wall_with_opening(room_id + "_west", west, Vector3(WALL_THICKNESS, WALL_HEIGHT, size.y), "z", wall_mat)
+	else:
+		_add_box(dungeon_root, room_id + "_west", west, Vector3(WALL_THICKNESS, WALL_HEIGHT, size.y), wall_mat, true)
+	if openings.has("east"):
+		_add_wall_with_opening(room_id + "_east", east, Vector3(WALL_THICKNESS, WALL_HEIGHT, size.y), "z", wall_mat)
+	else:
+		_add_box(dungeon_root, room_id + "_east", east, Vector3(WALL_THICKNESS, WALL_HEIGHT, size.y), wall_mat, true)
 
 
+func _add_wall_with_opening(base_name: String, center: Vector3, size: Vector3, axis: String, mat: Material) -> void:
+	if axis == "x":
+		var segment := (size.x - DOOR_GAP) * 0.5
+		if segment > 0.15:
+			_add_box(dungeon_root, base_name + "_a", center + Vector3(-(DOOR_GAP + segment) * 0.5, 0.0, 0.0), Vector3(segment, size.y, size.z), mat, true)
+			_add_box(dungeon_root, base_name + "_b", center + Vector3((DOOR_GAP + segment) * 0.5, 0.0, 0.0), Vector3(segment, size.y, size.z), mat, true)
+	else:
+		var segment := (size.z - DOOR_GAP) * 0.5
+		if segment > 0.15:
+			_add_box(dungeon_root, base_name + "_a", center + Vector3(0.0, 0.0, -(DOOR_GAP + segment) * 0.5), Vector3(size.x, size.y, segment), mat, true)
+			_add_box(dungeon_root, base_name + "_b", center + Vector3(0.0, 0.0, (DOOR_GAP + segment) * 0.5), Vector3(size.x, size.y, segment), mat, true)
 
 
+func _add_corridors() -> void:
+	var connected_pairs: Dictionary = {}
+	for cell in graph.keys():
+		var room_id: String = String(cell_to_room_id[cell])
+		var neighbors: Array = graph[cell] as Array
+		for neighbor_variant in neighbors:
+			var neighbor: Vector2i = neighbor_variant
+			var other_id: String = String(cell_to_room_id[neighbor])
+			var pair_key := _cell_key(cell) + ":" + _cell_key(neighbor)
+			var reverse_pair_key := _cell_key(neighbor) + ":" + _cell_key(cell)
+			if connected_pairs.has(pair_key) or connected_pairs.has(reverse_pair_key):
+				continue
+			connected_pairs[pair_key] = true
+			_connect_rooms(room_id, other_id)
 
 
+func _cell_key(cell: Vector2i) -> String:
+	return "%d_%d" % [cell.x, cell.y]
 
 
+func _room_pair_key(a_id: String, b_id: String) -> String:
+	if a_id < b_id:
+		return a_id + ":" + b_id
+	return b_id + ":" + a_id
 
-func _spawn_rat(position: Vector3) -> void:
-	var rat := RAT_SCENE.instantiate() as Node3D
-	rat.global_position = position
-	generated_root.add_child(rat)
+
+func _connect_rooms(a_id: String, b_id: String) -> void:
+	var a: Dictionary = rooms[a_id] as Dictionary
+	var b: Dictionary = rooms[b_id] as Dictionary
+	var a_center: Vector3 = a["center"]
+	var b_center: Vector3 = b["center"]
+	var a_size: Vector2 = a["size"]
+	var b_size: Vector2 = b["size"]
+	var wall_mat: Material = _mat("wall")
+	var variant := _corridor_variant_for(a_id, b_id)
+	var corridor_width := _corridor_width_for_variant(variant)
+	var floor_mat: Material = _corridor_floor_for_variant(variant)
+	var wall_h := 1.12
+
+	if absf(a_center.z - b_center.z) < 0.1:
+		var direction := signf(b_center.x - a_center.x)
+		var a_edge := a_center.x + direction * a_size.x * 0.5
+		var b_edge := b_center.x - direction * b_size.x * 0.5
+		var length := absf(b_edge - a_edge)
+		var center := Vector3((a_edge + b_edge) * 0.5, -0.075, a_center.z)
+		_add_box(dungeon_root, a_id + "_to_" + b_id + "_floor", center, Vector3(length, 0.15, corridor_width), floor_mat)
+		_add_box(dungeon_root, a_id + "_to_" + b_id + "_north_wall", Vector3(center.x, wall_h * 0.5, center.z - corridor_width * 0.5), Vector3(length + WALL_THICKNESS, wall_h, WALL_THICKNESS), wall_mat, true)
+		_add_box(dungeon_root, a_id + "_to_" + b_id + "_south_wall", Vector3(center.x, wall_h * 0.5, center.z + corridor_width * 0.5), Vector3(length + WALL_THICKNESS, wall_h, WALL_THICKNESS), wall_mat, true)
+		_add_corridor_dressing(a_id + "_to_" + b_id, center, length, corridor_width, true, variant)
+	else:
+		var direction := signf(b_center.z - a_center.z)
+		var a_edge := a_center.z + direction * a_size.y * 0.5
+		var b_edge := b_center.z - direction * b_size.y * 0.5
+		var length := absf(b_edge - a_edge)
+		var center := Vector3(a_center.x, -0.075, (a_edge + b_edge) * 0.5)
+		_add_box(dungeon_root, a_id + "_to_" + b_id + "_floor", center, Vector3(corridor_width, 0.15, length), floor_mat)
+		_add_box(dungeon_root, a_id + "_to_" + b_id + "_west_wall", Vector3(center.x - corridor_width * 0.5, wall_h * 0.5, center.z), Vector3(WALL_THICKNESS, wall_h, length + WALL_THICKNESS), wall_mat, true)
+		_add_box(dungeon_root, a_id + "_to_" + b_id + "_east_wall", Vector3(center.x + corridor_width * 0.5, wall_h * 0.5, center.z), Vector3(WALL_THICKNESS, wall_h, length + WALL_THICKNESS), wall_mat, true)
+		_add_corridor_dressing(a_id + "_to_" + b_id, center, length, corridor_width, false, variant)
 
 
-func _add_lumen_hint(position: Vector3) -> void:
-	_add_cylinder("LumenStem", position + Vector3(0.0, 0.24, 0.0), 0.035, 0.46, lumen_material, Vector3(1.0, 1.0, 1.0))
-	_add_sphere("LumenGlow", position + Vector3(0.0, 0.52, 0.0), 0.18, lumen_material, Vector3(1.0, 0.75, 1.0))
-	_add_omni_light("FaintLumenLight", position + Vector3(0.0, 0.9, 0.0), Color(0.42, 0.78, 0.68, 1.0), 0.72, 3.2)
+func _corridor_variant_for(a_id: String, b_id: String) -> String:
+	var pair_key := _room_pair_key(a_id, b_id)
+	if corridor_variants.has(pair_key):
+		return String(corridor_variants[pair_key])
+	var a: Dictionary = rooms[a_id] as Dictionary
+	var b: Dictionary = rooms[b_id] as Dictionary
+	var a_type: String = String(a["type"])
+	var b_type: String = String(b["type"])
+	var variant := "medium"
+	if a_type == "root_tunnel" or b_type == "root_tunnel" or a_type == "shifting_root_gate" or b_type == "shifting_root_gate":
+		variant = "long_root"
+	elif a_type == "stone_watch_room" or b_type == "stone_watch_room" or a_type == "forgotten_exit" or b_type == "forgotten_exit":
+		variant = "wide"
+	elif randf() < 0.22:
+		variant = "threshold"
+	elif randf() < 0.42:
+		variant = "narrow"
+	corridor_variants[pair_key] = variant
+	return variant
+
+
+func _corridor_width_for_variant(variant: String) -> float:
+	match variant:
+		"wide":
+			return 4.4
+		"narrow", "long_root":
+			return 2.45
+		"threshold":
+			return 3.8
+		_:
+			return CORRIDOR_WIDTH
+
+
+func _corridor_floor_for_variant(variant: String) -> Material:
+	match variant:
+		"long_root":
+			return _mat("floor_root")
+		"wide":
+			return _mat("floor_cold")
+		_:
+			return _mat("floor")
+
+
+func _add_corridor_dressing(base_name: String, center: Vector3, length: float, width: float, horizontal: bool, variant: String) -> void:
+	if length < 2.6:
+		_add_box(dungeon_root, base_name + "_threshold_slab", center + Vector3(0.0, 0.03, 0.0), Vector3(1.4 if horizontal else width, 0.05, width if horizontal else 1.4), _mat("stone"))
+		return
+
+	var rib_count := clampi(int(length / 3.1), 1, 5)
+	for i in range(rib_count):
+		var t := (float(i) + 0.5) / float(rib_count)
+		var along := -length * 0.5 + length * t
+		var side := -1.0 if i % 2 == 0 else 1.0
+		var position := center + (Vector3(along, 0.25, side * width * 0.42) if horizontal else Vector3(side * width * 0.42, 0.25, along))
+		match variant:
+			"long_root":
+				_add_cylinder(dungeon_root, base_name + "_root_rib", position, 0.075, randf_range(0.7, 1.15), _mat("root"), false, Vector3(randf_range(-0.35, 0.35), randf() * TAU, randf_range(-0.25, 0.25)))
+			"wide":
+				_add_box(dungeon_root, base_name + "_fallen_edge_slab", position, Vector3(0.65, 0.12, 0.38), _mat("stone"), false, Vector3(0.0, randf_range(-0.45, 0.45), 0.0))
+			"narrow":
+				_add_box(dungeon_root, base_name + "_pinch_shadow", position, Vector3(0.32, 0.12, 0.5), _mat("wall_dark"), false, Vector3(0.0, randf_range(-0.35, 0.35), 0.0))
+			_:
+				_add_box(dungeon_root, base_name + "_cracked_marker", position, Vector3(0.55, 0.04, 0.1), _mat("floor_crack"), false, Vector3(0.0, randf_range(-0.6, 0.6), 0.0))
+
+
+func _add_room_details() -> void:
+	for room_id in room_order:
+		var room: Dictionary = rooms[room_id] as Dictionary
+		var room_type: String = room["type"]
+		_add_room_light(room)
+		_add_cracked_floor_marks(room)
+		match room_type:
+			"wake":
+				_decorate_wake(room)
+			"fathers_map_room":
+				_decorate_map_room(room)
+			"root_tunnel":
+				_decorate_root_tunnel(room)
+			"rat_nest":
+				_decorate_rat_nest(room)
+			"mushroom_cellar":
+				_decorate_mushroom_cellar(room)
+			"stone_watch_room":
+				_decorate_stone_watch(room)
+			"broken_shrine":
+				_decorate_broken_shrine(room)
+			"shifting_root_gate":
+				_decorate_shifting_root_gate(room)
+			"loot_niche":
+				_decorate_loot_niche(room)
+			"key_alcove":
+				_decorate_key_alcove(room)
+			"sealed_white_door":
+				_decorate_sealed_door(room)
+			"forgotten_exit":
+				_decorate_forgotten_exit(room)
+			_:
+				_decorate_root_tunnel(room)
+
+
+func _add_room_entry_triggers() -> void:
+	for room_id in room_order:
+		var room: Dictionary = rooms[room_id] as Dictionary
+		var size: Vector2 = room["size"]
+		var message := _message_for_room(room)
+		_add_lore_trigger(message, _room_point(room, 0.0, 0.0, 0.6), Vector3(maxf(size.x - 2.2, 2.0), 1.4, maxf(size.y - 2.2, 2.0)), 2.6, room_id)
+
+
+func _message_for_room(room: Dictionary) -> String:
+	var room_type: String = room["type"]
+	match room_type:
+		"wake":
+			return "Toprak nefes almıyor. Dinliyor."
+		"fathers_map_room":
+			return "Kökaltı gerçek. İnme. Geri dön."
+		"broken_shrine":
+			return "Haritalar yukarıdakiler içindir. Aşağıda yollar canlıdır."
+		"shifting_root_gate":
+			return "Duvarlar yerini hatırlamıyor."
+		"sealed_white_door":
+			return "Bazı kapılar açılmaz. Seni bekler."
+		"key_alcove":
+			return "Kökler burada bir anahtarı saklamış."
+		"forgotten_exit":
+			return "Toprak burada ince. Kaçış yakında."
+		"rat_nest":
+			return "Kör sıçanlar köklerin arasında dinliyor."
+		"mushroom_cellar":
+			return "Mantarların nefesi ağırlaşıyor."
+		"stone_watch_room":
+			return "Taşlar nöbet tutuyor."
+		"loot_niche":
+			return "Bir şey geride bırakılmış."
+		"root_tunnel":
+			return "Kör şeyler bile burada yolu biliyor."
+		_:
+			return "Kök Tüneli yön değiştiriyor."
+
+
+func _spawn_room_contents() -> void:
+	for room_id in room_order:
+		var room: Dictionary = rooms[room_id] as Dictionary
+		var room_type: String = room["type"]
+		match room_type:
+			"root_tunnel":
+				_spawn_enemy_in_room(room_id, BLIND_RAT_SCENE, -0.22, 0.12)
+				if randf() < 0.35:
+					_spawn_enemy_in_room(room_id, BLIND_RAT_SCENE, 0.25, -0.18)
+			"rat_nest":
+				var rat_count := randi_range(2, 4)
+				for i in range(rat_count):
+					var offset := _enemy_offset_for_index(i, rat_count)
+					_spawn_enemy_in_room(room_id, BLIND_RAT_SCENE, offset.x, offset.y)
+				if randf() < 0.45:
+					_spawn_root_fragment(_room_point(room, 0.28, 0.24, 0.35))
+			"mushroom_cellar":
+				_spawn_enemy_in_room(room_id, MUSHROOM_MAN_SCENE, -0.18, 0.12)
+				if randf() < 0.55:
+					_spawn_enemy_in_room(room_id, MUSHROOM_MAN_SCENE, 0.24, -0.18)
+			"stone_watch_room":
+				_spawn_enemy_in_room(room_id, STONE_GUARD_SCENE, 0.08, 0.06)
+				if randf() < 0.45:
+					_spawn_enemy_in_room(room_id, BLIND_RAT_SCENE, -0.28, -0.22)
+				if randf() < 0.32:
+					_spawn_weapon_pickup(_room_point(room, -0.28, 0.22, 0.45), _get_random_weapon_id())
+			"loot_niche":
+				_spawn_root_fragment(_room_point(room, -0.24, 0.2, 0.35))
+				if randf() < 0.45:
+					_spawn_weapon_pickup(_room_point(room, 0.18, -0.12, 0.45), _get_random_weapon_id())
+			"broken_shrine":
+				if randf() < 0.5:
+					_spawn_enemy_in_room(room_id, BLIND_RAT_SCENE, 0.28, 0.18)
+			"shifting_root_gate":
+				_spawn_root_fragment(_room_point(room, 0.34, 0.26, 0.35))
+				if randf() < 0.35:
+					_spawn_weapon_pickup(_room_point(room, 0.34, -0.26, 0.45), _get_random_weapon_id())
+			_:
+				pass
+
+
+func _enemy_offset_for_index(index: int, total: int) -> Vector2:
+	if total <= 1:
+		return Vector2.ZERO
+	var angle := TAU * float(index) / float(total)
+	return Vector2(cos(angle) * 0.28, sin(angle) * 0.24)
+
+
+func _spawn_enemy_in_room(room_id: String, scene: PackedScene, x_ratio: float, z_ratio: float) -> Node3D:
+	var room: Dictionary = rooms[room_id] as Dictionary
+	var enemy := scene.instantiate() as Node3D
+	dungeon_root.add_child(enemy)
+	enemy.global_position = _room_point(room, x_ratio, z_ratio, 0.0)
+	enemy.set_meta("room_id", room_id)
+	room_enemy_counts[room_id] = int(room_enemy_counts.get(room_id, 0)) + 1
+	return enemy
+
+
+func _show_puzzle_message() -> void:
+	var now := Time.get_ticks_msec()
+	if now - puzzle_message_time_msec < 1200:
+		return
+	puzzle_message_time_msec = now
+	if not puzzle_shift_done:
+		puzzle_shift_done = true
+		var anchor_room_id := current_room_id
+		if anchor_room_id.is_empty() and player:
+			anchor_room_id = _room_id_at_position(player.global_position)
+		_trigger_labyrinth_shift(anchor_room_id, false, "Kökler kıpırdadı.")
+		return
+	show_message("Kökler kıpırdadı.", 1.4)
+	return
+
+
+func _trigger_labyrinth_shift(anchor_room_id: String, add_temporary_gate := false, message := "Kökaltı yer değiştirdi.") -> void:
+	labyrinth_shift_count += 1
+	var affected := _shift_affected_rooms(anchor_room_id)
+	_mark_minimap_uncertain(affected)
+	show_message(message, 2.0)
+	print("KOKLER shift event ", labyrinth_shift_count, " anchor=", anchor_room_id, " affected=", affected)
+	if add_temporary_gate:
+		_spawn_temporary_shift_gate_for_optional_leaf(anchor_room_id)
+
+
+func _shift_affected_rooms(anchor_room_id: String) -> Array[String]:
+	var affected: Array[String] = []
+	if anchor_room_id.is_empty() or not rooms.has(anchor_room_id):
+		return affected
+	for neighbor_id in _neighbor_room_ids_for(anchor_room_id):
+		if not affected.has(neighbor_id):
+			affected.append(neighbor_id)
+	var extra_leaf := _first_optional_leaf_room(anchor_room_id)
+	if not extra_leaf.is_empty() and not affected.has(extra_leaf):
+		affected.append(extra_leaf)
+	return affected
+
+
+func _first_optional_leaf_room(anchor_room_id: String) -> String:
+	for room_id in room_order:
+		if room_id == start_room_id or room_id == key_room_id or room_id == exit_room_id or room_id == current_room_id or room_id == anchor_room_id:
+			continue
+		var neighbors := _neighbor_room_ids_for(room_id)
+		if neighbors.size() == 1:
+			return room_id
+	return ""
+
+
+func _spawn_temporary_shift_gate_for_optional_leaf(anchor_room_id: String) -> void:
+	var leaf_room_id := _first_optional_leaf_room(anchor_room_id)
+	if leaf_room_id.is_empty():
+		return
+	var neighbors := _neighbor_room_ids_for(leaf_room_id)
+	if neighbors.is_empty():
+		return
+	var parent_room_id: String = String(neighbors[0])
+	var gate_position := _connection_midpoint(leaf_room_id, parent_room_id)
+	var gate_size := _connection_gate_size(leaf_room_id, parent_room_id)
+	var gate := _add_box(dungeon_root, "temporary_labyrinth_shift_gate", gate_position, gate_size, _mat("root"), true)
+	_add_box(gate, "temporary_labyrinth_shift_amber", Vector3(0.0, gate_size.y * 0.08, -gate_size.z * 0.52), Vector3(maxf(gate_size.x * 0.74, 0.08), 0.08, 0.05), _mat("amber"))
+	_mark_minimap_uncertain([leaf_room_id, parent_room_id])
+	await get_tree().create_timer(5.0).timeout
+	if is_instance_valid(gate):
+		_set_shift_gate_open(gate, true)
+
+
+func _connection_midpoint(a_id: String, b_id: String) -> Vector3:
+	var a: Dictionary = rooms[a_id] as Dictionary
+	var b: Dictionary = rooms[b_id] as Dictionary
+	var a_center: Vector3 = a["center"]
+	var b_center: Vector3 = b["center"]
+	var a_size: Vector2 = a["size"]
+	var b_size: Vector2 = b["size"]
+	if absf(a_center.z - b_center.z) < 0.1:
+		var direction := signf(b_center.x - a_center.x)
+		var a_edge := a_center.x + direction * a_size.x * 0.5
+		var b_edge := b_center.x - direction * b_size.x * 0.5
+		return Vector3((a_edge + b_edge) * 0.5, 0.58, a_center.z)
+	var direction := signf(b_center.z - a_center.z)
+	var a_edge := a_center.z + direction * a_size.y * 0.5
+	var b_edge := b_center.z - direction * b_size.y * 0.5
+	return Vector3(a_center.x, 0.58, (a_edge + b_edge) * 0.5)
+
+
+func _connection_gate_size(a_id: String, b_id: String) -> Vector3:
+	var a: Dictionary = rooms[a_id] as Dictionary
+	var b: Dictionary = rooms[b_id] as Dictionary
+	var a_center: Vector3 = a["center"]
+	var b_center: Vector3 = b["center"]
+	var variant := _corridor_variant_for(a_id, b_id)
+	var width := _corridor_width_for_variant(variant) + 0.45
+	if absf(a_center.z - b_center.z) < 0.1:
+		return Vector3(0.42, 1.15, width)
+	return Vector3(width, 1.15, 0.42)
+
+
+func _spawn_root_fragment(position: Vector3) -> void:
+	var pickup := ROOT_FRAGMENT_SCENE.instantiate() as Node3D
+	dungeon_root.add_child(pickup)
+	pickup.set("manager", self)
+	pickup.global_position = Vector3(position.x, 0.35, position.z)
+
+
+func _spawn_weapon_pickup(position: Vector3, weapon_id: String) -> void:
+	var pickup := WEAPON_PICKUP_SCENE.instantiate() as Node3D
+	dungeon_root.add_child(pickup)
+	pickup.set("weapon_id", weapon_id)
+	pickup.set("manager", self)
+	pickup.global_position = Vector3(position.x, 0.45, position.z)
+
+
+func _get_random_weapon_id() -> String:
+	var manager: Node = null
+	if player:
+		manager = player.get("weapon_manager") as Node
+	if manager and manager.has_method("get_random_loot_weapon_id"):
+		return manager.get_random_loot_weapon_id()
+	var ids: Array[String] = ["mace", "spear", "ember_staff", "mushroom_sling"]
+	return ids.pick_random()
+
+
+func _add_pressure_plate(plate_name: String, position: Vector3, callback: Callable) -> Area3D:
+	var area := Area3D.new()
+	area.name = plate_name
+	area.collision_layer = 0
+	area.collision_mask = 2
+	dungeon_root.add_child(area)
+	area.global_position = Vector3(position.x, 0.08, position.z)
+
+	var shape := CollisionShape3D.new()
+	var box_shape := BoxShape3D.new()
+	box_shape.size = Vector3(1.35, 0.18, 1.0)
+	shape.shape = box_shape
+	area.add_child(shape)
+
+	var plate_visual: Node3D = _add_box(area, plate_name + "_Visual", Vector3(0.0, -0.08, 0.0), Vector3(1.25, 0.06, 0.9), _mat("pressure_plate"))
+	area.body_entered.connect(func(body: Node3D) -> void:
+		if body.is_in_group("player_2_5d"):
+			if is_instance_valid(plate_visual):
+				var tween := create_tween()
+				tween.tween_property(plate_visual, "position:y", -0.12, 0.07)
+				tween.tween_property(plate_visual, "position:y", -0.08, 0.12)
+			callback.call()
+	)
+	return area
+
+
+func _add_shift_gate(gate_name: String, position: Vector3, size: Vector3, initially_open := false) -> Node3D:
+	var gate := _add_box(dungeon_root, gate_name, position, size, _mat("root"), true)
+	_add_box(gate, gate_name + "_Amber", Vector3(0.0, size.y * 0.05, -size.z * 0.52), Vector3(size.x * 0.86, size.y * 0.08, 0.05), _mat("amber"))
+	_set_shift_gate_open(gate, initially_open, true)
+	return gate
+
+
+func _set_shift_gate_open(gate: Node3D, open: bool, instant := false) -> void:
+	var shape := gate.get_node_or_null("CollisionShape3D") as CollisionShape3D
+	if shape:
+		shape.disabled = open
+	if open:
+		if instant:
+			gate.scale = Vector3(1.0, 0.08, 1.0)
+			gate.visible = false
+			return
+		var tween := create_tween()
+		tween.tween_property(gate, "scale", Vector3(1.0, 0.08, 1.0), 0.22)
+		tween.tween_callback(func() -> void:
+			if is_instance_valid(gate):
+				gate.visible = false
+		)
+	else:
+		gate.visible = true
+		if instant:
+			gate.scale = Vector3.ONE
+			return
+		gate.scale = Vector3(1.0, 0.08, 1.0)
+		var tween := create_tween()
+		tween.tween_property(gate, "scale", Vector3.ONE, 0.22)
 
 
 func _add_key_pickup(position: Vector3) -> void:
 	var area := Area3D.new()
-	area.name = "MutedGoldKeyPickup"
-	area.position = position
-	area.collision_layer = 0
+	area.name = "KeyPickup25D"
+	area.collision_layer = 16
 	area.collision_mask = 2
+	area.set_script(KEY_PICKUP_SCRIPT)
+	dungeon_root.add_child(area)
+	area.global_position = Vector3(position.x, 0.45, position.z)
+
+	var shape := CollisionShape3D.new()
+	var cylinder_shape := CylinderShape3D.new()
+	cylinder_shape.radius = 0.48
+	cylinder_shape.height = 0.95
+	shape.shape = cylinder_shape
+	area.add_child(shape)
+
+	var visual := Node3D.new()
+	visual.name = "KeyVisual"
+	area.add_child(visual)
+	area.set("visual", visual)
+	_add_cylinder(visual, "Ring", Vector3.ZERO, 0.2, 0.08, _mat("key"), false, Vector3(PI * 0.5, 0.0, 0.0))
+	_add_box(visual, "Stem", Vector3(0.0, 0.0, 0.32), Vector3(0.08, 0.08, 0.5), _mat("key"))
+	_add_box(visual, "Tooth", Vector3(0.15, 0.0, 0.52), Vector3(0.22, 0.08, 0.08), _mat("key"))
+
+
+func _add_exit_gate(position: Vector3) -> void:
+	var area := Area3D.new()
+	area.name = "ForgottenExitGate25D"
+	area.collision_layer = 16
+	area.collision_mask = 2
+	area.set_script(EXIT_GATE_SCRIPT)
+	dungeon_root.add_child(area)
+	area.global_position = Vector3(position.x, 0.7, position.z)
 
 	var shape := CollisionShape3D.new()
 	var box_shape := BoxShape3D.new()
-	box_shape.size = Vector3(1.2, 1.1, 1.2)
+	box_shape.size = Vector3(2.8, 1.9, 1.2)
 	shape.shape = box_shape
 	area.add_child(shape)
 
-	var key_visual := Node3D.new()
-	key_visual.name = "KeyVisual"
-	area.add_child(key_visual)
-	_add_cylinder_to(key_visual, "KeyBow", Vector3(-0.18, 0.02, 0.0), 0.16, 0.08, gold_material, Vector3(1.0, 1.0, 1.0), Vector3(PI * 0.5, 0.0, 0.0))
-	_add_visual_box_to(key_visual, "KeyShaft", Vector3(0.18, 0.0, 0.0), Vector3(0.48, 0.08, 0.08), gold_material)
-	_add_visual_box_to(key_visual, "KeyTooth", Vector3(0.43, -0.02, 0.13), Vector3(0.14, 0.08, 0.24), gold_material)
-
-	area.set_script(KEY_SCRIPT)
-	generated_root.add_child(area)
+	_add_box(area, "LeftPillar", Vector3(-1.0, 0.15, 0.0), Vector3(0.42, 2.0, 0.5), _mat("white_stone"))
+	_add_box(area, "RightPillar", Vector3(1.0, 0.15, 0.0), Vector3(0.42, 2.0, 0.5), _mat("white_stone"))
+	_add_box(area, "Lintel", Vector3(0.0, 1.08, 0.0), Vector3(2.35, 0.32, 0.48), _mat("white_stone"))
+	_add_box(area, "Glow", Vector3(0.0, 0.22, 0.04), Vector3(1.45, 1.32, 0.08), _mat("exit_glow"))
 
 
-func _add_exit_trigger(position: Vector3) -> void:
+func _add_lore_trigger(message: String, position: Vector3, size: Vector3, duration := 3.5, room_id := "") -> void:
 	var area := Area3D.new()
-	area.name = "ForgottenExitTrigger"
-	area.position = position
+	area.name = "RoomTrigger25D"
 	area.collision_layer = 0
 	area.collision_mask = 2
-
-	var shape := CollisionShape3D.new()
-	var box_shape := BoxShape3D.new()
-	box_shape.size = Vector3(1.6, 1.8, 1.1)
-	shape.shape = box_shape
-	area.add_child(shape)
-
-	area.set_script(EXIT_SCRIPT)
-	generated_root.add_child(area)
-
-
-func _add_lore_trigger(trigger_name: String, position: Vector3, size: Vector3, text: String) -> void:
-	var area := Area3D.new()
-	area.name = trigger_name
-	area.position = position
-	area.collision_layer = 0
-	area.collision_mask = 2
-
+	area.set_script(LORE_TRIGGER_SCRIPT)
+	dungeon_root.add_child(area)
+	area.set("message", message)
+	area.set("duration", duration)
+	area.set_meta("room_id", room_id)
+	area.global_position = Vector3(position.x, 0.6, position.z)
 	var shape := CollisionShape3D.new()
 	var box_shape := BoxShape3D.new()
 	box_shape.size = size
 	shape.shape = box_shape
 	area.add_child(shape)
-
-	area.set_script(LORE_SCRIPT)
-	area.set("message", text)
-	area.set("duration", 4.0)
-	generated_root.add_child(area)
-
-
-func _add_room(room_name: String, center: Vector2, size: Vector2, openings: Dictionary) -> void:
-	_add_visual_box(room_name + "Floor", Vector3(center.x, -FLOOR_THICKNESS * 0.5, center.y), Vector3(size.x, FLOOR_THICKNESS, size.y), floor_material)
-
-	var left_x := center.x - size.x * 0.5 - WALL_THICKNESS * 0.5
-	var right_x := center.x + size.x * 0.5 + WALL_THICKNESS * 0.5
-	var top_z := center.y - size.y * 0.5 - WALL_THICKNESS * 0.5
-	var bottom_z := center.y + size.y * 0.5 + WALL_THICKNESS * 0.5
-	var x_start := center.x - size.x * 0.5
-	var x_end := center.x + size.x * 0.5
-	var z_start := center.y - size.y * 0.5
-	var z_end := center.y + size.y * 0.5
-
-	_add_horizontal_wall(room_name + "NorthWall", top_z, x_start, x_end, center.x, openings.has("up"))
-	_add_horizontal_wall(room_name + "SouthWall", bottom_z, x_start, x_end, center.x, openings.has("down"))
-	_add_vertical_wall(room_name + "WestWall", left_x, z_start, z_end, center.y, openings.has("left"))
-	_add_vertical_wall(room_name + "EastWall", right_x, z_start, z_end, center.y, openings.has("right"))
+	area.body_entered.connect(func(body: Node) -> void:
+		if body.is_in_group("player_2_5d") and not room_id.is_empty():
+			_discover_room(room_id)
+	)
 
 
-func _add_corridor_x(corridor_name: String, x_start: float, x_end: float, z: float, width: float) -> void:
-	var length := x_end - x_start
-	var center_x := (x_start + x_end) * 0.5
-	_add_visual_box(corridor_name + "Floor", Vector3(center_x, -FLOOR_THICKNESS * 0.5, z), Vector3(length, FLOOR_THICKNESS, width), corridor_material)
-	_add_static_box(corridor_name + "NorthWall", Vector3(center_x, WALL_HEIGHT * 0.5, z - width * 0.5 - WALL_THICKNESS * 0.5), Vector3(length, WALL_HEIGHT, WALL_THICKNESS), wall_material)
-	_add_static_box(corridor_name + "SouthWall", Vector3(center_x, WALL_HEIGHT * 0.5, z + width * 0.5 + WALL_THICKNESS * 0.5), Vector3(length, WALL_HEIGHT, WALL_THICKNESS), wall_material)
+func _decorate_wake(room: Dictionary) -> void:
+	_add_box(dungeon_root, "wake_broken_slab_a", _room_point(room, -0.28, -0.22, 0.02), Vector3(2.2, 0.06, 0.55), _mat("stone"), false, Vector3(0.0, 0.25, 0.0))
+	_add_box(dungeon_root, "wake_broken_slab_b", _room_point(room, 0.22, 0.25, 0.02), Vector3(1.8, 0.06, 0.5), _mat("stone"), false, Vector3(0.0, -0.2, 0.0))
+	_add_rotten_beam(_room_point(room, -0.36, 0.25, 0.16), 1.5)
+	_add_root_cluster(_room_point(room, 0.34, -0.28, 0.04), 4)
 
 
-func _add_corridor_z(corridor_name: String, x: float, z_start: float, z_end: float, width: float) -> void:
-	var length := z_end - z_start
-	var center_z := (z_start + z_end) * 0.5
-	_add_visual_box(corridor_name + "Floor", Vector3(x, -FLOOR_THICKNESS * 0.5, center_z), Vector3(width, FLOOR_THICKNESS, length), corridor_material)
-	_add_static_box(corridor_name + "WestWall", Vector3(x - width * 0.5 - WALL_THICKNESS * 0.5, WALL_HEIGHT * 0.5, center_z), Vector3(WALL_THICKNESS, WALL_HEIGHT, length), wall_material)
-	_add_static_box(corridor_name + "EastWall", Vector3(x + width * 0.5 + WALL_THICKNESS * 0.5, WALL_HEIGHT * 0.5, center_z), Vector3(WALL_THICKNESS, WALL_HEIGHT, length), wall_material)
+func _decorate_map_room(room: Dictionary) -> void:
+	_add_box(dungeon_root, "map_table", _room_point(room, 0.0, 0.0, 0.32), Vector3(2.4, 0.28, 1.25), _mat("stone"))
+	_add_box(dungeon_root, "map_parchment", _room_point(room, 0.0, 0.0, 0.5), Vector3(1.8, 0.04, 0.85), _mat("parchment"))
+	_add_box(dungeon_root, "map_line_a", _room_point(room, -0.06, -0.02, 0.54), Vector3(1.0, 0.03, 0.06), _mat("ink"))
+	_add_box(dungeon_root, "map_line_b", _room_point(room, 0.1, 0.08, 0.55), Vector3(0.08, 0.03, 0.55), _mat("ink"))
+	_add_cylinder(dungeon_root, "broken_compass", _room_point(room, 0.25, -0.03, 0.58), 0.16, 0.04, _mat("key"), false, Vector3(PI * 0.5, 0.0, 0.0))
+	_add_standing_stones(room, 4)
 
 
-func _add_horizontal_wall(wall_name: String, z: float, x_start: float, x_end: float, opening_center: float, has_opening: bool) -> void:
-	if not has_opening:
-		_add_static_box(wall_name, Vector3((x_start + x_end) * 0.5, WALL_HEIGHT * 0.5, z), Vector3(x_end - x_start, WALL_HEIGHT, WALL_THICKNESS), wall_material)
-		return
-	var left_end := opening_center - DOOR_GAP * 0.5
-	var right_start := opening_center + DOOR_GAP * 0.5
-	_add_wall_segment(wall_name + "A", Vector3((x_start + left_end) * 0.5, WALL_HEIGHT * 0.5, z), Vector3(left_end - x_start, WALL_HEIGHT, WALL_THICKNESS))
-	_add_wall_segment(wall_name + "B", Vector3((right_start + x_end) * 0.5, WALL_HEIGHT * 0.5, z), Vector3(x_end - right_start, WALL_HEIGHT, WALL_THICKNESS))
+func _decorate_root_tunnel(room: Dictionary) -> void:
+	_add_root_cluster(_room_point(room, -0.34, -0.22, 0.04), 5)
+	_add_root_cluster(_room_point(room, 0.34, 0.24, 0.04), 4)
+	_add_rotten_beam(_room_point(room, 0.0, -0.35, 0.18), 1.8)
+	_add_extinguished_torch(_room_point(room, -0.22, 0.32, 0.08))
 
 
-func _add_vertical_wall(wall_name: String, x: float, z_start: float, z_end: float, opening_center: float, has_opening: bool) -> void:
-	if not has_opening:
-		_add_static_box(wall_name, Vector3(x, WALL_HEIGHT * 0.5, (z_start + z_end) * 0.5), Vector3(WALL_THICKNESS, WALL_HEIGHT, z_end - z_start), wall_material)
-		return
-	var top_end := opening_center - DOOR_GAP * 0.5
-	var bottom_start := opening_center + DOOR_GAP * 0.5
-	_add_wall_segment(wall_name + "A", Vector3(x, WALL_HEIGHT * 0.5, (z_start + top_end) * 0.5), Vector3(WALL_THICKNESS, WALL_HEIGHT, top_end - z_start))
-	_add_wall_segment(wall_name + "B", Vector3(x, WALL_HEIGHT * 0.5, (bottom_start + z_end) * 0.5), Vector3(WALL_THICKNESS, WALL_HEIGHT, z_end - bottom_start))
+func _decorate_rat_nest(room: Dictionary) -> void:
+	for i in range(8):
+		var position := _random_room_point(room, 1.8, 0.06)
+		_add_cylinder(dungeon_root, "rat_nest_root", position, 0.055, randf_range(0.7, 1.15), _mat("root"), false, Vector3(PI * 0.5, randf() * TAU, randf_range(-0.35, 0.35)))
+	_add_box(dungeon_root, "rat_bone_a", _room_point(room, -0.18, 0.22, 0.08), Vector3(0.12, 0.1, 0.75), _mat("bone"), false, Vector3(0.0, 0.7, 0.0))
+	_add_box(dungeon_root, "rat_bone_b", _room_point(room, 0.22, -0.18, 0.08), Vector3(0.12, 0.1, 0.55), _mat("bone"), false, Vector3(0.0, -0.4, 0.0))
 
 
-func _add_wall_segment(wall_name: String, position: Vector3, size: Vector3) -> void:
-	if size.x <= 0.08 or size.z <= 0.08:
-		return
-	_add_static_box(wall_name, position, size, wall_material)
+func _decorate_mushroom_cellar(room: Dictionary) -> void:
+	for i in range(7):
+		_add_mushroom_cluster(_random_room_point(room, 1.8, 0.04))
+	_add_sphere(dungeon_root, "faint_blue_fungus", _room_point(room, 0.32, 0.25, 0.28), 0.22, _mat("lumen_glow"), Vector3(1.0, 0.55, 1.0))
+	_add_cylinder(dungeon_root, "spore_stone", _room_point(room, -0.32, -0.25, 0.16), 0.22, 0.32, _mat("fungus_stone"))
 
 
-func _add_room_lights() -> void:
-	_add_omni_light("WakeWarmth", Vector3(0.0, 3.1, 0.0), Color(0.74, 0.48, 0.28, 1.0), 0.65, 7.0)
-	_add_omni_light("MapDustLight", Vector3(6.6, 3.0, 0.0), Color(0.82, 0.64, 0.42, 1.0), 0.55, 6.0)
-	_add_omni_light("ShrineLowLight", Vector3(18.6, 3.1, 0.0), Color(0.72, 0.52, 0.34, 1.0), 0.45, 6.0)
-	_add_omni_light("ExitColdLight", Vector3(37.3, 3.2, -1.0), Color(0.55, 0.82, 0.74, 1.0), 0.85, 6.5)
+func _decorate_stone_watch(room: Dictionary) -> void:
+	_add_box(dungeon_root, "watch_fallen_pillar", _room_point(room, -0.25, 0.25, 0.22), Vector3(2.8, 0.35, 0.42), _mat("stone"), false, Vector3(0.0, 0.45, 0.0))
+	_add_box(dungeon_root, "watch_slab_a", _room_point(room, 0.35, -0.28, 0.45), Vector3(0.7, 0.9, 0.6), _mat("stone"))
+	_add_box(dungeon_root, "watch_slab_b", _room_point(room, -0.38, -0.18, 0.35), Vector3(0.55, 0.7, 0.55), _mat("stone"))
+	_add_standing_stones(room, 6)
 
 
-func _add_omni_light(light_name: String, position: Vector3, color: Color, energy: float, light_range: float) -> void:
+func _decorate_broken_shrine(room: Dictionary) -> void:
+	_add_cylinder(dungeon_root, "shrine_center", _room_point(room, 0.0, 0.0, 0.55), 0.45, 1.1, _mat("stone"))
+	_add_box(dungeon_root, "shrine_cap", _room_point(room, 0.0, 0.0, 1.15), Vector3(1.0, 0.26, 0.72), _mat("white_stone"))
+	for i in range(6):
+		var angle := TAU * float(i) / 6.0
+		_add_cylinder(dungeon_root, "shrine_orbit_stone", _room_point(room, cos(angle) * 0.34, sin(angle) * 0.28, 0.26), 0.14, 0.52, _mat("stone"))
+	_add_box(dungeon_root, "shrine_root_scar", _room_point(room, 0.0, -0.12, 1.32), Vector3(0.14, 0.24, 0.08), _mat("root"))
+
+
+func _decorate_shifting_root_gate(room: Dictionary) -> void:
+	var room_id: String = String(room["id"])
+	_add_root_cluster(_room_point(room, -0.36, -0.32, 0.04), 5)
+	_add_root_cluster(_room_point(room, -0.36, 0.32, 0.04), 5)
+	_add_rotten_beam(_room_point(room, 0.04, 0.0, 0.18), 2.2)
+	_add_box(dungeon_root, room_id + "_memory_line_a", _room_point(room, -0.02, -0.22, 0.035), Vector3(4.1, 0.04, 0.14), _mat("floor_crack"), false, Vector3(0.0, 0.06, 0.0))
+	_add_box(dungeon_root, room_id + "_memory_line_b", _room_point(room, -0.02, 0.22, 0.035), Vector3(4.1, 0.04, 0.14), _mat("floor_crack"), false, Vector3(0.0, -0.06, 0.0))
+
+	var gate_a: Node3D = _add_shift_gate(room_id + "_lower_root_gate", _room_point(room, 0.24, -0.24, 0.55), Vector3(0.42, 1.1, 2.15), false)
+	var gate_b: Node3D = _add_shift_gate(room_id + "_upper_root_gate", _room_point(room, 0.24, 0.24, 0.55), Vector3(0.42, 1.1, 2.15), true)
+	var reset_gate: Node3D = _add_shift_gate(room_id + "_side_reset_gate", _room_point(room, -0.08, 0.0, 0.5), Vector3(1.8, 0.95, 0.35), true)
+
+	_add_pressure_plate(room_id + "_plate_lower", _room_point(room, -0.24, -0.24, 0.05), func() -> void:
+		_set_shift_gate_open(gate_a, true)
+		_set_shift_gate_open(gate_b, false)
+		_set_shift_gate_open(reset_gate, true)
+		_show_puzzle_message()
+	)
+	_add_pressure_plate(room_id + "_plate_upper", _room_point(room, -0.24, 0.24, 0.05), func() -> void:
+		_set_shift_gate_open(gate_a, false)
+		_set_shift_gate_open(gate_b, true)
+		_set_shift_gate_open(reset_gate, true)
+		_show_puzzle_message()
+	)
+	_add_pressure_plate(room_id + "_plate_reset", _room_point(room, 0.0, 0.0, 0.05), func() -> void:
+		_set_shift_gate_open(gate_a, true)
+		_set_shift_gate_open(gate_b, true)
+		_set_shift_gate_open(reset_gate, true)
+		_show_puzzle_message()
+	)
+	_add_pressure_plate(room_id + "_plate_return", _room_point(room, 0.36, 0.0, 0.05), func() -> void:
+		_set_shift_gate_open(gate_a, true)
+		_set_shift_gate_open(gate_b, true)
+		_set_shift_gate_open(reset_gate, true)
+		_show_puzzle_message()
+	)
+
+	_add_box(dungeon_root, room_id + "_optional_bowl", _room_point(room, 0.38, 0.0, 0.18), Vector3(0.62, 0.24, 0.62), _mat("stone"))
+	_add_box(dungeon_root, room_id + "_white_hint_slit", _room_point(room, 0.38, 0.0, 0.42), Vector3(0.12, 0.48, 0.08), _mat("exit_glow"))
+
+
+func _decorate_loot_niche(room: Dictionary) -> void:
+	_add_box(dungeon_root, "loot_crate_a", _room_point(room, -0.32, 0.22, 0.24), Vector3(0.75, 0.48, 0.65), _mat("crate"))
+	_add_box(dungeon_root, "loot_crate_b", _room_point(room, 0.28, 0.2, 0.18), Vector3(0.56, 0.36, 0.48), _mat("crate"))
+	_add_cylinder(dungeon_root, "stone_bowl", _room_point(room, 0.0, -0.2, 0.18), 0.32, 0.18, _mat("stone"))
+	_add_root_cluster(_room_point(room, 0.36, -0.28, 0.04), 3)
+
+
+func _decorate_key_alcove(room: Dictionary) -> void:
+	_add_root_cluster(_room_point(room, -0.32, -0.18, 0.04), 6)
+	_add_root_cluster(_room_point(room, 0.32, -0.18, 0.04), 6)
+	_add_box(dungeon_root, "key_plinth", _room_point(room, 0.0, 0.18, 0.18), Vector3(1.35, 0.36, 1.0), _mat("stone"))
+	_add_box(dungeon_root, "key_back_marker", _room_point(room, 0.0, -0.34, 0.62), Vector3(1.2, 1.25, 0.18), _mat("white_stone"))
+
+
+func _decorate_sealed_door(room: Dictionary) -> void:
+	_add_lost_neighborhood_hint(_room_point(room, -0.28, 0.18, 0.0))
+	_add_box(dungeon_root, "sealed_door_back", _room_point(room, 0.22, -0.24, 0.74), Vector3(1.55, 1.5, 0.18), _mat("white_stone"))
+	_add_box(dungeon_root, "sealed_door_line", _room_point(room, 0.22, -0.25, 0.78), Vector3(0.1, 1.15, 0.08), _mat("exit_glow"))
+
+
+func _decorate_forgotten_exit(room: Dictionary) -> void:
+	_add_box(dungeon_root, "exit_fallen_pillar", _room_point(room, -0.35, -0.28, 0.18), Vector3(2.4, 0.36, 0.42), _mat("stone"), false, Vector3(0.0, -0.3, 0.0))
+	_add_cylinder(dungeon_root, "exit_root_a", _room_point(room, 0.34, 0.32, 0.55), 0.12, 1.35, _mat("root"), false, Vector3(0.55, 0.0, 0.2))
+	_add_cylinder(dungeon_root, "exit_root_b", _room_point(room, -0.34, 0.32, 0.45), 0.09, 1.05, _mat("root"), false, Vector3(-0.35, 0.4, -0.2))
+	_add_deeper_stair_hint(_room_point(room, -0.1, 0.34, 0.0))
+
+
+func _add_room_light(room: Dictionary) -> void:
+	var room_type: String = String(room["type"])
+	var room_size: Vector2 = room["size"]
 	var light := OmniLight3D.new()
-	light.name = light_name
-	light.position = position
-	light.light_color = color
-	light.light_energy = energy
-	light.omni_range = light_range
-	generated_root.add_child(light)
+	light.name = String(room["id"]) + "_RoomLight"
+	light.shadow_enabled = false
+	light.omni_range = maxf(room_size.x, room_size.y) * 0.72
+	light.light_energy = 0.45
+	light.light_color = Color(0.95, 0.68, 0.42)
+	match room_type:
+		"mushroom_cellar":
+			light.light_color = Color(0.55, 0.95, 0.78)
+			light.light_energy = 0.36
+		"sealed_white_door", "forgotten_exit":
+			light.light_color = Color(0.72, 0.95, 0.84)
+			light.light_energy = 0.52
+		"stone_watch_room":
+			light.light_color = Color(0.78, 0.72, 0.62)
+			light.light_energy = 0.40
+		"shifting_root_gate":
+			light.light_color = Color(0.9, 0.52, 0.25)
+			light.light_energy = 0.48
+		_:
+			pass
+	dungeon_root.add_child(light)
+	light.global_position = _room_point(room, 0.0, 0.0, 2.7)
 
 
-func _add_static_box(box_name: String, position: Vector3, size: Vector3, material: Material) -> StaticBody3D:
-	var body := StaticBody3D.new()
-	body.name = box_name
-	body.collision_layer = 1
-	body.collision_mask = 0
-	body.position = position
-
-	var mesh_instance := _make_box_mesh("Visual", size, material)
-	body.add_child(mesh_instance)
-
-	var shape := CollisionShape3D.new()
-	var box_shape := BoxShape3D.new()
-	box_shape.size = size
-	shape.shape = box_shape
-	body.add_child(shape)
-
-	generated_root.add_child(body)
-	return body
+func _add_cracked_floor_marks(room: Dictionary) -> void:
+	var room_type: String = String(room["type"])
+	var count := 3
+	match room_type:
+		"rat_nest", "stone_watch_room", "forgotten_exit":
+			count = 5
+		"loot_niche", "key_alcove":
+			count = 2
+		"wake", "fathers_map_room", "broken_shrine", "shifting_root_gate":
+			count = 4
+		_:
+			pass
+	for i in range(count):
+		var crack_position := _random_room_point(room, 2.2, 0.025)
+		var crack_size := Vector3(randf_range(0.7, 1.65), 0.035, randf_range(0.06, 0.16))
+		_add_box(dungeon_root, String(room["id"]) + "_floor_crack", crack_position, crack_size, _mat("floor_crack"), false, Vector3(0.0, randf_range(-0.9, 0.9), 0.0))
 
 
-func _add_visual_box(box_name: String, position: Vector3, size: Vector3, material: Material) -> MeshInstance3D:
-	var mesh_instance := _make_box_mesh(box_name, size, material)
-	mesh_instance.position = position
-	generated_root.add_child(mesh_instance)
-	return mesh_instance
+func _add_deeper_stair_hint(position: Vector3) -> void:
+	for i in range(4):
+		_add_box(dungeon_root, "collapsed_deeper_step", position + Vector3(0.0, 0.05 + float(i) * 0.06, float(i) * 0.28), Vector3(1.65 - float(i) * 0.18, 0.08, 0.22), _mat("wall_dark"))
+	_add_box(dungeon_root, "lower_passage_shadow", position + Vector3(0.0, 0.22, 1.24), Vector3(1.55, 0.42, 0.18), _mat("wall_dark"))
+	_add_box(dungeon_root, "lower_passage_glow", position + Vector3(0.0, 0.42, 1.15), Vector3(0.82, 0.58, 0.06), _mat("exit_glow"))
 
 
-func _add_visual_box_to(parent: Node3D, box_name: String, position: Vector3, size: Vector3, material: Material) -> MeshInstance3D:
-	var mesh_instance := _make_box_mesh(box_name, size, material)
-	mesh_instance.position = position
-	parent.add_child(mesh_instance)
-	return mesh_instance
+func _add_root_cluster(position: Vector3, count: int) -> void:
+	for i in range(count):
+		var angle := randf() * TAU
+		var offset := Vector3(cos(angle) * randf_range(0.0, 0.45), 0.32, sin(angle) * randf_range(0.0, 0.45))
+		_add_cylinder(dungeon_root, "root_cluster", position + offset, randf_range(0.055, 0.12), randf_range(0.75, 1.35), _mat("root"), false, Vector3(randf_range(-0.45, 0.45), angle, randf_range(-0.3, 0.3)))
 
 
-func _make_box_mesh(mesh_name: String, size: Vector3, material: Material) -> MeshInstance3D:
+func _add_rotten_beam(position: Vector3, length: float) -> void:
+	_add_box(dungeon_root, "rotten_beam", position, Vector3(length, 0.22, 0.22), _mat("wood"), false, Vector3(0.0, randf_range(-0.7, 0.7), 0.0))
+
+
+func _add_extinguished_torch(position: Vector3) -> void:
+	_add_cylinder(dungeon_root, "dead_torch_base", position + Vector3(0.0, 0.14, 0.0), 0.08, 0.35, _mat("stone"))
+	_add_box(dungeon_root, "dead_torch_coal", position + Vector3(0.0, 0.34, 0.0), Vector3(0.22, 0.08, 0.22), _mat("coal"))
+
+
+func _add_standing_stones(room: Dictionary, count: int) -> void:
+	for i in range(count):
+		var angle := TAU * float(i) / float(count)
+		var position := _room_point(room, cos(angle) * 0.36, sin(angle) * 0.28, 0.28)
+		_add_box(dungeon_root, "standing_stone", position, Vector3(0.28, randf_range(0.45, 0.85), 0.24), _mat("stone"), false, Vector3(0.0, angle, 0.0))
+
+
+func _add_mushroom_cluster(position: Vector3) -> void:
+	var stem_height := randf_range(0.22, 0.42)
+	_add_cylinder(dungeon_root, "mushroom_stem", position + Vector3(0.0, stem_height * 0.5, 0.0), 0.055, stem_height, _mat("mushroom_stem"))
+	var cap := _add_sphere(dungeon_root, "mushroom_cap", position + Vector3(0.0, stem_height + 0.05, 0.0), randf_range(0.16, 0.25), _mat("mushroom_cap"), Vector3(1.35, 0.38, 1.1))
+	cap.rotation.y = randf() * TAU
+
+
+func _add_lost_neighborhood_hint(position: Vector3) -> void:
+	_add_box(dungeon_root, "lost_house_base", position + Vector3(0.0, 0.2, 0.0), Vector3(1.25, 0.4, 0.75), _mat("house"))
+	_add_box(dungeon_root, "lost_house_roof", position + Vector3(0.0, 0.55, -0.04), Vector3(1.0, 0.24, 0.9), _mat("stone"), false, Vector3(0.0, 0.0, 0.15))
+	_add_box(dungeon_root, "lost_house_gap", position + Vector3(0.08, 0.22, -0.4), Vector3(0.32, 0.24, 0.08), _mat("wall_dark"))
+
+
+func _room_id_at_position(position: Vector3) -> String:
+	for room_id in room_order:
+		var room: Dictionary = rooms[room_id] as Dictionary
+		var center: Vector3 = room["center"]
+		var size: Vector2 = room["size"]
+		if absf(position.x - center.x) <= size.x * 0.5 and absf(position.z - center.z) <= size.y * 0.5:
+			return room_id
+	return ""
+
+
+func _room_point(room: Dictionary, x_ratio: float, z_ratio: float, y := 0.0) -> Vector3:
+	var center: Vector3 = room["center"]
+	var size: Vector2 = room["size"]
+	return center + Vector3(x_ratio * size.x, y, z_ratio * size.y)
+
+
+func _random_room_point(room: Dictionary, padding: float, y := 0.0) -> Vector3:
+	var center: Vector3 = room["center"]
+	var size: Vector2 = room["size"]
+	var half_x := maxf(size.x * 0.5 - padding, 1.0)
+	var half_z := maxf(size.y * 0.5 - padding, 1.0)
+	var x := randf_range(-half_x, half_x)
+	var z := randf_range(-half_z, half_z)
+	if absf(x) < 1.7 and absf(z) < 1.7:
+		x += 2.0 * signf(x if absf(x) > 0.01 else randf_range(-1.0, 1.0))
+	return center + Vector3(x, y, z)
+
+
+func _add_debug_room_label(room_id: String) -> void:
+	var room: Dictionary = rooms[room_id] as Dictionary
+	var center: Vector3 = room["center"]
+	var room_type: String = room["type"]
+	var label := Label3D.new()
+	label.name = room_id + "_DebugLabel"
+	label.text = room_id + "\n" + room_type
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	label.font_size = 24
+	label.modulate = Color(0.82, 0.72, 0.5, 0.85)
+	dungeon_root.add_child(label)
+	label.global_position = center + Vector3(0.0, 1.7, 0.0)
+
+
+func _add_box(parent: Node, node_name: String, position: Vector3, size: Vector3, mat: Material, collision := false, rotation := Vector3.ZERO) -> Node3D:
 	var mesh := BoxMesh.new()
 	mesh.size = size
-	var mesh_instance := MeshInstance3D.new()
-	mesh_instance.name = mesh_name
-	mesh_instance.mesh = mesh
-	mesh_instance.material_override = material
-	return mesh_instance
+	var visual := MeshInstance3D.new()
+	visual.name = node_name
+	visual.mesh = mesh
+	visual.material_override = mat
+
+	if collision:
+		var body := StaticBody3D.new()
+		body.name = node_name + "_Body"
+		body.collision_layer = 1
+		body.collision_mask = 0
+		parent.add_child(body)
+		body.global_position = position
+		body.rotation = rotation
+		body.add_child(visual)
+		visual.position = Vector3.ZERO
+		var shape := CollisionShape3D.new()
+		var box_shape := BoxShape3D.new()
+		box_shape.size = size
+		shape.shape = box_shape
+		body.add_child(shape)
+		return body
+
+	parent.add_child(visual)
+	visual.position = position
+	visual.rotation = rotation
+	return visual
 
 
-func _add_cylinder(cylinder_name: String, position: Vector3, radius: float, height: float, material: Material, mesh_scale: Vector3, rotation := Vector3.ZERO) -> MeshInstance3D:
-	var mesh_instance := _make_cylinder_mesh(cylinder_name, radius, height, material)
-	mesh_instance.position = position
-	mesh_instance.scale = mesh_scale
-	mesh_instance.rotation = rotation
-	generated_root.add_child(mesh_instance)
-	return mesh_instance
-
-
-func _add_cylinder_to(parent: Node3D, cylinder_name: String, position: Vector3, radius: float, height: float, material: Material, mesh_scale: Vector3, rotation := Vector3.ZERO) -> MeshInstance3D:
-	var mesh_instance := _make_cylinder_mesh(cylinder_name, radius, height, material)
-	mesh_instance.position = position
-	mesh_instance.scale = mesh_scale
-	mesh_instance.rotation = rotation
-	parent.add_child(mesh_instance)
-	return mesh_instance
-
-
-func _make_cylinder_mesh(mesh_name: String, radius: float, height: float, material: Material) -> MeshInstance3D:
+func _add_cylinder(parent: Node, node_name: String, position: Vector3, radius: float, height: float, mat: Material, _collision := false, rotation := Vector3.ZERO) -> Node3D:
 	var mesh := CylinderMesh.new()
 	mesh.top_radius = radius
 	mesh.bottom_radius = radius
 	mesh.height = height
-	mesh.radial_segments = 10
-	var mesh_instance := MeshInstance3D.new()
-	mesh_instance.name = mesh_name
-	mesh_instance.mesh = mesh
-	mesh_instance.material_override = material
-	return mesh_instance
+	mesh.radial_segments = 8
+	var visual := MeshInstance3D.new()
+	visual.name = node_name
+	visual.mesh = mesh
+	visual.material_override = mat
+	parent.add_child(visual)
+	visual.position = position
+	visual.rotation = rotation
+	return visual
 
 
-func _add_sphere(sphere_name: String, position: Vector3, radius: float, material: Material, mesh_scale: Vector3) -> MeshInstance3D:
+func _add_sphere(parent: Node, node_name: String, position: Vector3, radius: float, mat: Material, mesh_scale := Vector3.ONE) -> MeshInstance3D:
 	var mesh := SphereMesh.new()
 	mesh.radius = radius
 	mesh.height = radius * 2.0
 	mesh.radial_segments = 10
 	mesh.rings = 5
-	var mesh_instance := MeshInstance3D.new()
-	mesh_instance.name = sphere_name
-	mesh_instance.mesh = mesh
-	mesh_instance.position = position
-	mesh_instance.scale = mesh_scale
-	mesh_instance.material_override = material
-	generated_root.add_child(mesh_instance)
-	return mesh_instance
+	var visual := MeshInstance3D.new()
+	visual.name = node_name
+	visual.mesh = mesh
+	visual.material_override = mat
+	parent.add_child(visual)
+	visual.position = position
+	visual.scale = mesh_scale
+	return visual
 
 
-func _create_materials() -> void:
-	floor_material = _material(Color(0.18, 0.12, 0.075, 1.0))
-	corridor_material = _material(Color(0.13, 0.09, 0.06, 1.0))
-	wall_material = _material(Color(0.065, 0.052, 0.044, 1.0))
-	dark_stone_material = _material(Color(0.105, 0.09, 0.075, 1.0))
-	root_material = _material(Color(0.16, 0.09, 0.045, 1.0))
-	parchment_material = _material(Color(0.68, 0.58, 0.38, 1.0))
-	ink_material = _material(Color(0.12, 0.08, 0.045, 1.0))
-	crate_material = _material(Color(0.22, 0.14, 0.08, 1.0))
-	gold_material = _material(Color(0.72, 0.56, 0.18, 1.0))
-	exit_material = _material(Color(0.55, 0.78, 0.68, 0.78), true)
-	pale_stone_material = _material(Color(0.48, 0.52, 0.48, 1.0))
-	grey_hint_material = _material(Color(0.30, 0.31, 0.30, 1.0))
-	lumen_material = _material(Color(0.28, 0.66, 0.58, 1.0))
-	sealed_material = _material(Color(0.72, 0.73, 0.69, 1.0))
+func _build_materials() -> void:
+	mats = {
+		"floor": _make_material(Color(0.18, 0.135, 0.09)),
+		"floor_root": _make_material(Color(0.16, 0.105, 0.07)),
+		"floor_cold": _make_material(Color(0.18, 0.18, 0.16)),
+		"floor_green": _make_material(Color(0.13, 0.17, 0.13)),
+		"floor_crack": _make_material(Color(0.065, 0.043, 0.03)),
+		"wall": _make_material(Color(0.085, 0.065, 0.05)),
+		"wall_dark": _make_material(Color(0.045, 0.035, 0.03)),
+		"stone": _make_material(Color(0.31, 0.29, 0.25)),
+		"white_stone": _make_material(Color(0.70, 0.70, 0.64)),
+		"root": _make_material(Color(0.20, 0.10, 0.055)),
+		"pressure_plate": _make_material(Color(0.36, 0.22, 0.11), Color(0.28, 0.14, 0.04), 0.22),
+		"amber": _make_material(Color(0.86, 0.43, 0.13), Color(0.8, 0.28, 0.06), 0.6),
+		"wood": _make_material(Color(0.25, 0.14, 0.08)),
+		"coal": _make_material(Color(0.05, 0.045, 0.04)),
+		"bone": _make_material(Color(0.63, 0.56, 0.43)),
+		"parchment": _make_material(Color(0.62, 0.52, 0.36)),
+		"ink": _make_material(Color(0.09, 0.06, 0.035)),
+		"key": _make_material(Color(0.76, 0.54, 0.18), Color(0.35, 0.22, 0.05), 0.35),
+		"crate": _make_material(Color(0.29, 0.20, 0.14)),
+		"house": _make_material(Color(0.40, 0.39, 0.36)),
+		"mushroom_stem": _make_material(Color(0.70, 0.60, 0.52)),
+		"mushroom_cap": _make_material(Color(0.50, 0.16, 0.22)),
+		"fungus_stone": _make_material(Color(0.27, 0.18, 0.22)),
+		"lumen_glow": _make_material(Color(0.33, 0.82, 0.68), Color(0.22, 0.82, 0.70), 0.85),
+		"exit_glow": _make_material(Color(0.75, 0.95, 0.82, 0.62), Color(0.55, 0.95, 0.75), 0.8),
+	}
 
 
-func _material(color: Color, transparent := false) -> StandardMaterial3D:
-	var material := StandardMaterial3D.new()
-	material.albedo_color = color
-	material.roughness = 0.95
-	if transparent:
-		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	return material
-	
-	# ─── RASTGELE SPAWN FONKSIYONLARI ───
-
-func _spawn_random_rats() -> void:
-	for room in generated_rooms:
-		if room["type"] in [ROOM_TYPE_WAKE, ROOM_TYPE_EXIT]:
-			continue  # başlangıç ve çıkışta düşman yok
-		
-		var rat_count := randi_range(1, 2)
-		if room["type"] == ROOM_TYPE_KEY:
-			rat_count = randi_range(2, 3)  # anahtar odasında daha zor
-		
-		var center: Vector3 = room["center"]
-		var size: Vector2 = room["size"]
-		
-		for i in range(rat_count):
-			var offset := Vector3(
-				randf_range(-size.x * 0.3, size.x * 0.3),
-				0.0,
-				randf_range(-size.y * 0.3, size.y * 0.3)
-			)
-			_spawn_rat(center + offset)
+func _mat(id: String) -> Material:
+	return mats.get(id) as Material
 
 
-func _spawn_key_in_random_room() -> void:
-	# Anahtar dal odadadır (zaten type = KEY olarak ayarlandı)
-	for room in generated_rooms:
-		if room["type"] == ROOM_TYPE_KEY:
-			var center: Vector3 = room["center"]
-			_add_key_pickup(Vector3(center.x, 0.75, center.z))
-			break
-
-
-func _spawn_exit_in_last_room() -> void:
-	for room in generated_rooms:
-		if room["type"] == ROOM_TYPE_EXIT:
-			var center: Vector3 = room["center"]
-			var size: Vector2 = room["size"]
-			# Trigger'ı kapının önüne (arka duvardan biraz öne) koy
-			var back_z := -size.y * 0.5 + 0.6
-			_add_exit_trigger(Vector3(center.x, 0.8, center.z + back_z))
-			break
-
-
-func _add_room_lights_random() -> void:
-	for room in generated_rooms:
-		var center: Vector3 = room["center"]
-		var light_color := Color(0.74, 0.48, 0.28, 1.0)  # varsayılan sıcak
-		
-		match room["type"]:
-			ROOM_TYPE_EXIT:
-				light_color = Color(0.55, 0.82, 0.74, 1.0)  # soğuk yeşil
-			ROOM_TYPE_KEY:
-				light_color = Color(0.82, 0.64, 0.42, 1.0)  # altın
-			ROOM_TYPE_LORE:
-				light_color = Color(0.72, 0.52, 0.34, 1.0)  # solgun
-		
-		_add_omni_light(
-			"%sLight" % room["id"],
-			Vector3(center.x, 3.0, center.z),
-			light_color,
-			0.55,
-			6.5)
-			
-func _add_props_per_room() -> void:
-	for room in generated_rooms:
-		var center: Vector3 = room["center"]
-		var size: Vector2 = room["size"]
-		var type: String = room["type"]
-		match type:
-			ROOM_TYPE_WAKE:
-				_props_wake_chamber(center, size)
-			ROOM_TYPE_MAP:
-				_props_map_room(center, size)
-			ROOM_TYPE_STORAGE:
-				_props_storage(center, size)
-			ROOM_TYPE_SHRINE:
-				_props_shrine(center, size)
-			ROOM_TYPE_KEY:
-				_props_key_alcove(center, size)
-			ROOM_TYPE_EXIT:
-				_props_forgotten_exit(center, size)
-			ROOM_TYPE_LORE:
-				_props_lore_room(center, size)
-			_:
-				pass
-
-
-func _props_wake_chamber(center: Vector3, size: Vector2) -> void:
-	_add_visual_box("WakeSlabA", center + Vector3(-1.35, 0.035, -1.15), Vector3(1.45, 0.07, 0.7), dark_stone_material)
-	_add_visual_box("WakeSlabB", center + Vector3(1.15, 0.04, 1.2), Vector3(1.2, 0.08, 0.9), dark_stone_material)
-	_add_visual_box("WakeStone", center + Vector3(-2.0, 0.18, 1.55), Vector3(0.55, 0.36, 0.42), dark_stone_material)
-	_add_cylinder("WakePillar", center + Vector3(2.0, 0.62, -1.45), 0.18, 1.25, root_material, Vector3(0.9, 1.0, 0.9))
-	_add_lore_trigger("WakeLoreTrigger", center + Vector3(0.0, 0.7, 0.0), Vector3(size.x * 0.8, 1.4, size.y * 0.8), "Toprak nefes almıyor. Dinliyor.")
-
-
-func _props_map_room(center: Vector3, size: Vector2) -> void:
-	_add_static_box("MapTable", center + Vector3(0.0, 0.28, 0.15), Vector3(2.1, 0.55, 1.05), dark_stone_material)
-	_add_visual_box("ParchmentMap", center + Vector3(0.0, 0.59, 0.15), Vector3(1.55, 0.035, 0.72), parchment_material)
-	_add_visual_box("MapLineA", center + Vector3(-0.25, 0.625, 0.0), Vector3(0.8, 0.025, 0.04), ink_material)
-	_add_visual_box("MapLineB", center + Vector3(0.25, 0.626, 0.32), Vector3(0.55, 0.025, 0.04), ink_material)
-	_add_visual_box("MapLineC", center + Vector3(0.18, 0.627, -0.08), Vector3(0.04, 0.025, 0.5), ink_material)
-	_add_lore_trigger("MapLoreTrigger", center + Vector3(0.0, 0.7, 0.0), Vector3(size.x * 0.8, 1.4, size.y * 0.8), "Kökaltı gerçek. İnme. Geri dön.")
-
-
-func _props_storage(center: Vector3, size: Vector2) -> void:
-	_add_static_box("CrateA", center + Vector3(-1.0, 0.28, 0.6), Vector3(0.75, 0.55, 0.75), crate_material)
-	_add_static_box("CrateB", center + Vector3(1.0, 0.22, -0.6), Vector3(0.7, 0.44, 0.65), crate_material)
-	_add_visual_box("StorageStone", center + Vector3(0.0, 0.12, 1.0), Vector3(0.9, 0.24, 0.38), dark_stone_material)
-	
-func _props_shrine(center: Vector3, size: Vector2) -> void:
-	_add_static_box("ShrineMarker", center + Vector3(0.0, 0.65, -1.1), Vector3(0.62, 1.3, 0.32), pale_stone_material)
-	_add_visual_box("ShrineBase", center + Vector3(0.0, 0.12, -1.1), Vector3(1.25, 0.24, 0.75), dark_stone_material)
-	_add_visual_box("ShrineRubble", center + Vector3(-1.35, 0.12, 1.25), Vector3(0.82, 0.24, 0.38), dark_stone_material)
-	_add_lore_trigger("ShrineLoreTrigger", center + Vector3(0.0, 0.7, 0.0), Vector3(size.x * 0.8, 1.4, size.y * 0.8), "Haritalar yukaridakiler icindir. Asagida yollar canlidir.")
-
-
-func _props_key_alcove(center: Vector3, size: Vector2) -> void:
-	_add_cylinder("AlcoveRootLeft", center + Vector3(-0.85, 0.72, -0.5), 0.18, 1.45, root_material, Vector3(0.75, 1.0, 0.75))
-	_add_cylinder("AlcoveRootRight", center + Vector3(0.85, 0.72, -0.5), 0.18, 1.45, root_material, Vector3(0.75, 1.0, 0.75))
-	_add_static_box("KeyPlinth", center + Vector3(0.0, 0.18, 0.5), Vector3(1.2, 0.36, 0.9), dark_stone_material)
-
-
-func _props_forgotten_exit(center: Vector3, size: Vector2) -> void:
-	var back_z := -size.y * 0.5 + 0.3
-	_add_static_box("ExitLeftPillar", center + Vector3(-0.85, 0.85, back_z), Vector3(0.42, 1.7, 0.42), pale_stone_material)
-	_add_static_box("ExitRightPillar", center + Vector3(0.85, 0.85, back_z), Vector3(0.42, 1.7, 0.42), pale_stone_material)
-	_add_static_box("ExitLintel", center + Vector3(0.0, 1.72, back_z), Vector3(2.15, 0.32, 0.42), pale_stone_material)
-	_add_visual_box("ExitGlow", center + Vector3(0.0, 0.82, back_z - 0.09), Vector3(1.18, 1.45, 0.08), exit_material)
-
-
-func _props_lore_room(center: Vector3, size: Vector2) -> void:
-	_add_lumen_hint(center + Vector3(-0.5, 0.05, 0.35))
-	_add_visual_box("LoreDampStone", center + Vector3(0.5, 0.08, -0.35), Vector3(1.0, 0.16, 0.42), dark_stone_material)
-	_add_lore_trigger("LoreTrigger", center + Vector3(0.0, 0.7, 0.0), Vector3(size.x * 0.8, 1.4, size.y * 0.8), "Bazi kapilar acilmaz. Seni bekler.")
-
-func _setup_navigation() -> void:
-	nav_region = NavigationRegion3D.new()
-	nav_region.name = "NavRegion"
-	# generated_root'a değil, sahnenin kendisine ekle
-	add_child(nav_region)
-	
-	# generated_root'u nav_region'ın çocuğu yap — böylece içindeki tüm mesh'leri görür
-	generated_root.reparent(nav_region)
-	
-	var nav_mesh := NavigationMesh.new()
-	nav_mesh.cell_size = 0.15
-	nav_mesh.cell_height = 0.15
-	nav_mesh.agent_height = 1.2
-	nav_mesh.agent_radius = 0.2
-	nav_mesh.agent_max_climb = 0.2
-	nav_mesh.agent_max_slope = 45.0
-	nav_mesh.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_MESH_INSTANCES
-	nav_mesh.geometry_source_geometry_mode = NavigationMesh.SOURCE_GEOMETRY_ROOT_NODE_CHILDREN
-	
-	nav_region.navigation_mesh = nav_mesh
-	call_deferred("_bake_navigation")
-
-
-func _bake_navigation() -> void:
-	if not is_instance_valid(nav_region):
-		return
-	nav_region.bake_navigation_mesh()
-	await get_tree().create_timer(0.3).timeout
-	var nav_mesh := nav_region.navigation_mesh
-	if nav_mesh:
-		var vertex_count := nav_mesh.get_vertices().size()
-		var polygon_count := nav_mesh.get_polygon_count()
-		print(">>> Navigation mesh bake edildi: ", vertex_count, " vertex, ", polygon_count, " polygon")
-		if vertex_count == 0:
-			print(">>> UYARI: Mesh boş!")
+func _make_material(color: Color, emission := Color.BLACK, emission_energy := 0.0) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.roughness = 0.92
+	if color.a < 1.0:
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	if emission_energy > 0.0:
+		mat.emission_enabled = true
+		mat.emission = emission
+		mat.emission_energy_multiplier = emission_energy
+	return mat
