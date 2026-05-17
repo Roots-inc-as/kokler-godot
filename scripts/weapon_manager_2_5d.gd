@@ -81,7 +81,7 @@ func get_weapon_at_slot(slot: int) -> WeaponData:
 	var index := slot - 1
 	if index < 0 or index >= owned_weapons.size():
 		return null
-	return weapons.get(owned_weapons[index])
+	return weapons.get(owned_weapons[index]) as WeaponData
 
 
 func switch_to_slot(slot: int) -> bool:
@@ -96,17 +96,20 @@ func switch_to_slot(slot: int) -> bool:
 func get_current_weapon() -> WeaponData:
 	if owned_weapons.is_empty():
 		add_weapon("knife")
-	return weapons.get(owned_weapons[current_index])
+	if owned_weapons.is_empty():
+		return null
+	current_index = clampi(current_index, 0, owned_weapons.size() - 1)
+	return weapons.get(owned_weapons[current_index]) as WeaponData
 
 
 func get_weapon(weapon_id: String) -> WeaponData:
-	return weapons.get(weapon_id)
+	return weapons.get(weapon_id) as WeaponData
 
 
 func get_owned_display_text() -> String:
 	var parts: Array[String] = []
 	for i in range(owned_weapons.size()):
-		var weapon: WeaponData = weapons.get(owned_weapons[i])
+		var weapon: WeaponData = weapons.get(owned_weapons[i]) as WeaponData
 		if weapon:
 			var prefix := str(i + 1)
 			if i == current_index:
@@ -116,7 +119,7 @@ func get_owned_display_text() -> String:
 
 
 func get_random_loot_weapon_id() -> String:
-	var candidates := ["mace", "spear", "ember_staff", "mushroom_sling"]
+	var candidates: Array[String] = ["mace", "spear", "ember_staff", "mushroom_sling"]
 	candidates.shuffle()
 	for weapon_id in candidates:
 		if not owned_weapons.has(weapon_id):

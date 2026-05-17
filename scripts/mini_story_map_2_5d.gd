@@ -42,6 +42,7 @@ const FUTURE_PASSIVE_ITEM_IDS: Array[String] = [
 @export var debug_print_generation := true
 @export var debug_room_labels := false
 @export var start_fullscreen := true
+@export var spawn_debug_start_weapons := false
 
 var player: Node3D
 var ui: Node
@@ -61,6 +62,7 @@ var cell_to_room_id: Dictionary = {}
 var graph: Dictionary = {}
 var corridor_variants: Dictionary = {}
 var room_enemy_counts: Dictionary = {}
+var blocking_prop_positions: Dictionary = {}
 var discovered_rooms: Dictionary = {}
 var shown_lore_messages: Dictionary = {}
 var mats: Dictionary = {}
@@ -75,6 +77,7 @@ var exit_room_id := ""
 
 func _ready() -> void:
 	add_to_group("mini_story_manager_2_5d")
+	Engine.time_scale = 1.0
 	_apply_startup_presentation()
 	if generation_seed != 0:
 		seed(generation_seed)
@@ -147,14 +150,12 @@ func collect_weapon(weapon_id: String) -> void:
 	if player.has_method("get_weapon_display_name"):
 		weapon_name = player.call("get_weapon_display_name", weapon_id)
 	
-	var manager = player.get("weapon_manager")
+	var manager := _get_player_weapon_manager()
 	var inventory_full := false
 	var already_owned := false
 	if manager:
-		if manager.has_method("is_inventory_full"):
-			inventory_full = manager.call("is_inventory_full")
-		if "owned_weapons" in manager:
-			already_owned = manager.owned_weapons.has(weapon_id)
+		inventory_full = manager.is_inventory_full()
+		already_owned = manager.owned_weapons.has(weapon_id)
 	
 	# Popup zaten açıksa hiçbir şey yapma
 	if _active_swap_popup and is_instance_valid(_active_swap_popup):
@@ -179,7 +180,7 @@ func collect_weapon(weapon_id: String) -> void:
 
 
 func _open_weapon_swap_popup(new_weapon_id: String, new_weapon_name: String) -> void:
-	var manager = player.get("weapon_manager")
+	var manager := _get_player_weapon_manager()
 	if not manager:
 		return
 	
@@ -191,11 +192,20 @@ func _open_weapon_swap_popup(new_weapon_id: String, new_weapon_name: String) -> 
 		return
 	
 	# Popup oluştur
-	var popup: CanvasLayer = WEAPON_SWAP_POPUP_SCRIPT.new()
-	get_tree().current_scene.add_child(popup)
-	popup.setup(new_weapon_id, new_weapon_name, slot1.display_name, slot2.display_name)
-	popup.slot_chosen.connect(_on_weapon_swap_chosen.bind(new_weapon_id))
-	popup.cancelled.connect(_on_weapon_swap_cancelled)
+	var popup := WEAPON_SWAP_POPUP_SCRIPT.new() as CanvasLayer
+	if popup == null:
+		return
+	var scene_root := get_tree().current_scene
+	if scene_root:
+		scene_root.add_child(popup)
+	else:
+		add_child(popup)
+	if not popup.has_method("setup") or not popup.has_signal("slot_chosen") or not popup.has_signal("cancelled"):
+		popup.queue_free()
+		return
+	popup.call("setup", new_weapon_id, new_weapon_name, slot1.display_name, slot2.display_name)
+	popup.connect("slot_chosen", Callable(self, "_on_weapon_swap_chosen").bind(new_weapon_id))
+	popup.connect("cancelled", Callable(self, "_on_weapon_swap_cancelled"))
 	_active_swap_popup = popup
 	
 	# Oyunu duraklatma — popup üstünde olsa bile oyun devam etsin (sade tercih)
@@ -204,7 +214,7 @@ func _open_weapon_swap_popup(new_weapon_id: String, new_weapon_name: String) -> 
 
 func _on_weapon_swap_chosen(slot: int, new_weapon_id: String) -> void:
 	_active_swap_popup = null
-	var manager = player.get("weapon_manager")
+	var manager := _get_player_weapon_manager()
 	if not manager:
 		return
 	
@@ -217,8 +227,7 @@ func _on_weapon_swap_chosen(slot: int, new_weapon_id: String) -> void:
 		_spawn_weapon_pickup(drop_position, dropped_id)
 	
 	# Yeni silahı zorla ekle
-	if manager.has_method("force_add_weapon"):
-		manager.force_add_weapon(new_weapon_id)
+	manager.force_add_weapon(new_weapon_id)
 	
 	var dropped_name := dropped_id
 	if player.has_method("get_weapon_display_name") and not dropped_id.is_empty():
@@ -239,6 +248,12 @@ func _on_weapon_swap_cancelled() -> void:
 	_active_swap_popup = null
 	_pending_swap_pickup = null
 	show_message("İptal edildi.", 1.5)
+
+
+func _get_player_weapon_manager() -> WeaponManager25D:
+	if player == null or not is_instance_valid(player):
+		return null
+	return player.get("weapon_manager") as WeaponManager25D
 
 
 func enemy_died(enemy_type: String, drop_position: Vector3) -> void:
@@ -387,6 +402,8 @@ func _neighbor_room_ids_for(room_id: String) -> Array[String]:
 		return result
 	var room: Dictionary = rooms[room_id] as Dictionary
 	var cell: Vector2i = room["cell"]
+	if not graph.has(cell):
+		return result
 	var neighbors: Array = graph[cell] as Array
 	for neighbor_variant in neighbors:
 		var neighbor: Vector2i = neighbor_variant
@@ -399,10 +416,14 @@ func _connection_pairs() -> Array:
 	var result: Array = []
 	var seen: Dictionary = {}
 	for cell in graph.keys():
+		if not cell_to_room_id.has(cell):
+			continue
 		var room_id: String = String(cell_to_room_id[cell])
 		var neighbors: Array = graph[cell] as Array
 		for neighbor_variant in neighbors:
 			var neighbor: Vector2i = neighbor_variant
+			if not cell_to_room_id.has(neighbor):
+				continue
 			var other_id: String = String(cell_to_room_id[neighbor])
 			var pair_key := _room_pair_key(room_id, other_id)
 			if seen.has(pair_key):
@@ -418,6 +439,10 @@ func _build_dungeon() -> void:
 	add_child(dungeon_root)
 
 	_generate_room_graph()
+	if room_order.is_empty() or not rooms.has(start_room_id) or not rooms.has(key_room_id) or not rooms.has(exit_room_id):
+		push_error("Dungeon generation failed to produce reachable start/key/exit rooms.")
+		return
+
 	for room_id in room_order:
 		_add_room(room_id)
 		if debug_room_labels:
@@ -461,6 +486,7 @@ func _try_generate_room_graph() -> bool:
 	graph.clear()
 	corridor_variants.clear()
 	room_enemy_counts.clear()
+	blocking_prop_positions.clear()
 	discovered_rooms.clear()
 	current_room_id = ""
 	puzzle_shift_done = false
@@ -527,6 +553,8 @@ func _build_fallback_graph() -> void:
 	cell_to_room_id.clear()
 	graph.clear()
 	corridor_variants.clear()
+	room_enemy_counts.clear()
+	blocking_prop_positions.clear()
 	discovered_rooms.clear()
 	current_room_id = ""
 	var used: Dictionary = {}
@@ -1137,7 +1165,8 @@ func _message_for_room(room: Dictionary) -> String:
 
 
 func _spawn_room_contents() -> void:
-	_spawn_test_weapons_in_start_room()
+	if spawn_debug_start_weapons:
+		_spawn_test_weapons_in_start_room()
 	for room_id in room_order:
 		var room: Dictionary = rooms[room_id] as Dictionary
 		var room_type: String = room["type"]
@@ -1186,10 +1215,15 @@ func _enemy_offset_for_index(index: int, total: int) -> Vector2:
 
 
 func _spawn_enemy_in_room(room_id: String, scene: PackedScene, x_ratio: float, z_ratio: float) -> Node3D:
+	if scene == null or not rooms.has(room_id):
+		return null
 	var room: Dictionary = rooms[room_id] as Dictionary
 	var enemy := scene.instantiate() as Node3D
+	if enemy == null:
+		return null
 	dungeon_root.add_child(enemy)
-	enemy.global_position = _room_point(room, x_ratio, z_ratio, 0.0)
+	var spawn_position := _room_point(room, x_ratio, z_ratio, 0.0)
+	enemy.global_position = _safe_room_spawn_position(room, spawn_position, 0.9)
 	enemy.set_meta("room_id", room_id)
 	room_enemy_counts[room_id] = int(room_enemy_counts.get(room_id, 0)) + 1
 	return enemy
@@ -1293,25 +1327,33 @@ func _connection_gate_size(a_id: String, b_id: String) -> Vector3:
 
 
 func _spawn_root_fragment(position: Vector3) -> void:
+	if ROOT_FRAGMENT_SCENE == null:
+		return
 	var pickup := ROOT_FRAGMENT_SCENE.instantiate() as Node3D
+	if pickup == null:
+		return
 	dungeon_root.add_child(pickup)
 	pickup.set("manager", self)
-	pickup.global_position = Vector3(position.x, 0.35, position.z)
+	var pickup_position := _safe_pickup_position(Vector3(position.x, 0.35, position.z), 0.45)
+	pickup.global_position = pickup_position
 
 
 func _spawn_weapon_pickup(position: Vector3, weapon_id: String) -> void:
+	if WEAPON_PICKUP_SCENE == null:
+		return
 	var pickup := WEAPON_PICKUP_SCENE.instantiate() as Node3D
+	if pickup == null:
+		return
 	dungeon_root.add_child(pickup)
 	pickup.set("weapon_id", weapon_id)
 	pickup.set("manager", self)
-	pickup.global_position = Vector3(position.x, 0.45, position.z)
+	var pickup_position := _safe_pickup_position(Vector3(position.x, 0.45, position.z), 0.55)
+	pickup.global_position = pickup_position
 
 
 func _get_random_weapon_id() -> String:
-	var manager: Node = null
-	if player:
-		manager = player.get("weapon_manager") as Node
-	if manager and manager.has_method("get_random_loot_weapon_id"):
+	var manager := _get_player_weapon_manager()
+	if manager:
 		return manager.get_random_loot_weapon_id()
 	var ids: Array[String] = ["mace", "spear", "ember_staff", "mushroom_sling"]
 	return ids.pick_random()
@@ -1351,10 +1393,7 @@ func _add_shift_gate(gate_name: String, position: Vector3, size: Vector3, initia
 
 
 func _set_shift_gate_open(gate: Node3D, open: bool, instant := false) -> void:
-	# Gate'in altındaki TÜM CollisionShape3D'leri bul ve kapat
-	for child in gate.get_children():
-		if child is CollisionShape3D:
-			(child as CollisionShape3D).disabled = open
+	_set_collision_shapes_disabled(gate, open)
 	if open:
 		if instant:
 			gate.scale = Vector3(1.0, 0.08, 1.0)
@@ -1374,6 +1413,13 @@ func _set_shift_gate_open(gate: Node3D, open: bool, instant := false) -> void:
 		gate.scale = Vector3(1.0, 0.08, 1.0)
 		var tween := create_tween()
 		tween.tween_property(gate, "scale", Vector3.ONE, 0.22)
+
+
+func _set_collision_shapes_disabled(node: Node, disabled: bool) -> void:
+	for child in node.get_children():
+		if child is CollisionShape3D:
+			(child as CollisionShape3D).disabled = disabled
+		_set_collision_shapes_disabled(child, disabled)
 
 
 func _add_key_pickup(position: Vector3) -> void:
@@ -1452,7 +1498,7 @@ func _decorate_wake(room: Dictionary) -> void:
 
 
 func _decorate_map_room(room: Dictionary) -> void:
-	_add_box(dungeon_root, "map_table", _room_point(room, 0.0, 0.0, 0.32), Vector3(2.4, 0.28, 1.25), _mat("stone"))
+	_create_blocking_prop(dungeon_root, "map_table", _room_point(room, 0.0, 0.0, 0.32), Vector3(2.4, 0.28, 1.25), _mat("stone"))
 	_add_box(dungeon_root, "map_parchment", _room_point(room, 0.0, 0.0, 0.5), Vector3(1.8, 0.04, 0.85), _mat("parchment"))
 	_add_box(dungeon_root, "map_line_a", _room_point(room, -0.06, -0.02, 0.54), Vector3(1.0, 0.03, 0.06), _mat("ink"))
 	_add_box(dungeon_root, "map_line_b", _room_point(room, 0.1, 0.08, 0.55), Vector3(0.08, 0.03, 0.55), _mat("ink"))
@@ -1479,22 +1525,22 @@ func _decorate_mushroom_cellar(room: Dictionary) -> void:
 	for i in range(7):
 		_add_mushroom_cluster(_random_room_point(room, 1.8, 0.04))
 	_add_sphere(dungeon_root, "faint_blue_fungus", _room_point(room, 0.32, 0.25, 0.28), 0.22, _mat("lumen_glow"), Vector3(1.0, 0.55, 1.0))
-	_add_cylinder(dungeon_root, "spore_stone", _room_point(room, -0.32, -0.25, 0.16), 0.22, 0.32, _mat("fungus_stone"))
+	_create_soft_blocking_cylinder_prop(dungeon_root, "spore_stone", _room_point(room, -0.32, -0.25, 0.16), 0.22, 0.32, _mat("fungus_stone"))
 
 
 func _decorate_stone_watch(room: Dictionary) -> void:
-	_add_box(dungeon_root, "watch_fallen_pillar", _room_point(room, -0.25, 0.25, 0.22), Vector3(2.8, 0.35, 0.42), _mat("stone"), false, Vector3(0.0, 0.45, 0.0))
-	_add_box(dungeon_root, "watch_slab_a", _room_point(room, 0.35, -0.28, 0.45), Vector3(0.7, 0.9, 0.6), _mat("stone"))
-	_add_box(dungeon_root, "watch_slab_b", _room_point(room, -0.38, -0.18, 0.35), Vector3(0.55, 0.7, 0.55), _mat("stone"))
+	_create_blocking_prop(dungeon_root, "watch_fallen_pillar", _room_point(room, -0.25, 0.25, 0.22), Vector3(2.8, 0.35, 0.42), _mat("stone"), Vector3(0.0, 0.45, 0.0))
+	_create_blocking_prop(dungeon_root, "watch_slab_a", _room_point(room, 0.35, -0.28, 0.45), Vector3(0.7, 0.9, 0.6), _mat("stone"))
+	_create_blocking_prop(dungeon_root, "watch_slab_b", _room_point(room, -0.38, -0.18, 0.35), Vector3(0.55, 0.7, 0.55), _mat("stone"))
 	_add_standing_stones(room, 6)
 
 
 func _decorate_broken_shrine(room: Dictionary) -> void:
-	_add_cylinder(dungeon_root, "shrine_center", _room_point(room, 0.0, 0.0, 0.55), 0.45, 1.1, _mat("stone"))
+	_create_blocking_cylinder_prop(dungeon_root, "shrine_center", _room_point(room, 0.0, 0.0, 0.55), 0.45, 1.1, _mat("stone"))
 	_add_box(dungeon_root, "shrine_cap", _room_point(room, 0.0, 0.0, 1.15), Vector3(1.0, 0.26, 0.72), _mat("white_stone"))
 	for i in range(6):
 		var angle := TAU * float(i) / 6.0
-		_add_cylinder(dungeon_root, "shrine_orbit_stone", _room_point(room, cos(angle) * 0.34, sin(angle) * 0.28, 0.26), 0.14, 0.52, _mat("stone"))
+		_create_soft_blocking_cylinder_prop(dungeon_root, "shrine_orbit_stone", _room_point(room, cos(angle) * 0.34, sin(angle) * 0.28, 0.26), 0.14, 0.52, _mat("stone"))
 	_add_box(dungeon_root, "shrine_root_scar", _room_point(room, 0.0, -0.12, 1.32), Vector3(0.14, 0.24, 0.08), _mat("root"))
 
 
@@ -1535,14 +1581,14 @@ func _decorate_shifting_root_gate(room: Dictionary) -> void:
 		_show_puzzle_message()
 	)
 
-	_add_box(dungeon_root, room_id + "_optional_bowl", _room_point(room, 0.38, 0.0, 0.18), Vector3(0.62, 0.24, 0.62), _mat("stone"))
+	_create_soft_blocking_prop(dungeon_root, room_id + "_optional_bowl", _room_point(room, 0.38, 0.0, 0.18), Vector3(0.62, 0.24, 0.62), _mat("stone"))
 	_add_box(dungeon_root, room_id + "_white_hint_slit", _room_point(room, 0.38, 0.0, 0.42), Vector3(0.12, 0.48, 0.08), _mat("exit_glow"))
 
 
 func _decorate_loot_niche(room: Dictionary) -> void:
-	_add_box(dungeon_root, "loot_crate_a", _room_point(room, -0.32, 0.22, 0.24), Vector3(0.75, 0.48, 0.65), _mat("crate"))
-	_add_box(dungeon_root, "loot_crate_b", _room_point(room, 0.28, 0.2, 0.18), Vector3(0.56, 0.36, 0.48), _mat("crate"))
-	_add_cylinder(dungeon_root, "stone_bowl", _room_point(room, 0.0, -0.2, 0.18), 0.32, 0.18, _mat("stone"))
+	_create_soft_blocking_prop(dungeon_root, "loot_crate_a", _room_point(room, -0.32, 0.22, 0.24), Vector3(0.75, 0.48, 0.65), _mat("crate"))
+	_create_soft_blocking_prop(dungeon_root, "loot_crate_b", _room_point(room, 0.28, 0.2, 0.18), Vector3(0.56, 0.36, 0.48), _mat("crate"))
+	_create_soft_blocking_cylinder_prop(dungeon_root, "stone_bowl", _room_point(room, 0.0, -0.2, 0.18), 0.32, 0.18, _mat("stone"))
 	_add_root_cluster(_room_point(room, 0.36, -0.28, 0.04), 3)
 
 
@@ -1550,17 +1596,17 @@ func _decorate_key_alcove(room: Dictionary) -> void:
 	_add_root_cluster(_room_point(room, -0.32, -0.18, 0.04), 6)
 	_add_root_cluster(_room_point(room, 0.32, -0.18, 0.04), 6)
 	_add_box(dungeon_root, "key_plinth", _room_point(room, 0.0, 0.18, 0.18), Vector3(1.35, 0.36, 1.0), _mat("stone"))
-	_add_box(dungeon_root, "key_back_marker", _room_point(room, 0.0, -0.34, 0.62), Vector3(1.2, 1.25, 0.18), _mat("white_stone"))
+	_create_blocking_prop(dungeon_root, "key_back_marker", _room_point(room, 0.0, -0.34, 0.62), Vector3(1.2, 1.25, 0.18), _mat("white_stone"))
 
 
 func _decorate_sealed_door(room: Dictionary) -> void:
 	_add_lost_neighborhood_hint(_room_point(room, -0.28, 0.18, 0.0))
-	_add_box(dungeon_root, "sealed_door_back", _room_point(room, 0.22, -0.24, 0.74), Vector3(1.55, 1.5, 0.18), _mat("white_stone"))
+	_create_blocking_prop(dungeon_root, "sealed_door_back", _room_point(room, 0.22, -0.24, 0.74), Vector3(1.55, 1.5, 0.18), _mat("white_stone"))
 	_add_box(dungeon_root, "sealed_door_line", _room_point(room, 0.22, -0.25, 0.78), Vector3(0.1, 1.15, 0.08), _mat("exit_glow"))
 
 
 func _decorate_forgotten_exit(room: Dictionary) -> void:
-	_add_box(dungeon_root, "exit_fallen_pillar", _room_point(room, -0.35, -0.28, 0.18), Vector3(2.4, 0.36, 0.42), _mat("stone"), false, Vector3(0.0, -0.3, 0.0))
+	_create_blocking_prop(dungeon_root, "exit_fallen_pillar", _room_point(room, -0.35, -0.28, 0.18), Vector3(2.4, 0.36, 0.42), _mat("stone"), Vector3(0.0, -0.3, 0.0))
 	_add_cylinder(dungeon_root, "exit_root_a", _room_point(room, 0.34, 0.32, 0.55), 0.12, 1.35, _mat("root"), false, Vector3(0.55, 0.0, 0.2))
 	_add_cylinder(dungeon_root, "exit_root_b", _room_point(room, -0.34, 0.32, 0.45), 0.09, 1.05, _mat("root"), false, Vector3(-0.35, 0.4, -0.2))
 	_add_deeper_stair_hint(_room_point(room, -0.1, 0.34, 0.0))
@@ -1614,8 +1660,8 @@ func _add_cracked_floor_marks(room: Dictionary) -> void:
 
 func _add_deeper_stair_hint(position: Vector3) -> void:
 	for i in range(4):
-		_add_box(dungeon_root, "collapsed_deeper_step", position + Vector3(0.0, 0.05 + float(i) * 0.06, float(i) * 0.28), Vector3(1.65 - float(i) * 0.18, 0.08, 0.22), _mat("wall_dark"))
-	_add_box(dungeon_root, "lower_passage_shadow", position + Vector3(0.0, 0.22, 1.24), Vector3(1.55, 0.42, 0.18), _mat("wall_dark"))
+		_create_soft_blocking_prop(dungeon_root, "collapsed_deeper_step", position + Vector3(0.0, 0.05 + float(i) * 0.06, float(i) * 0.28), Vector3(1.65 - float(i) * 0.18, 0.08, 0.22), _mat("wall_dark"), Vector3.ZERO, Vector3(0.52, 0.8, 0.7))
+	_create_blocking_prop(dungeon_root, "lower_passage_shadow", position + Vector3(0.0, 0.22, 1.24), Vector3(1.55, 0.42, 0.18), _mat("wall_dark"))
 	_add_box(dungeon_root, "lower_passage_glow", position + Vector3(0.0, 0.42, 1.15), Vector3(0.82, 0.58, 0.06), _mat("exit_glow"))
 
 
@@ -1624,14 +1670,18 @@ func _add_root_cluster(position: Vector3, count: int) -> void:
 		var angle := randf() * TAU
 		var offset := Vector3(cos(angle) * randf_range(0.0, 0.45), 0.32, sin(angle) * randf_range(0.0, 0.45))
 		_add_cylinder(dungeon_root, "root_cluster", position + offset, randf_range(0.055, 0.12), randf_range(0.75, 1.35), _mat("root"), false, Vector3(randf_range(-0.45, 0.45), angle, randf_range(-0.3, 0.3)))
+	if count >= 5:
+		_create_blocking_cylinder_prop(dungeon_root, "root_cluster_core", position + Vector3(0.0, 0.36, 0.0), 0.34, 0.72, _mat("root"), Vector3.ZERO)
+	elif count >= 3:
+		_create_soft_blocking_cylinder_prop(dungeon_root, "root_cluster_soft_core", position + Vector3(0.0, 0.32, 0.0), 0.28, 0.58, _mat("root"))
 
 
 func _add_rotten_beam(position: Vector3, length: float) -> void:
-	_add_box(dungeon_root, "rotten_beam", position, Vector3(length, 0.22, 0.22), _mat("wood"), false, Vector3(0.0, randf_range(-0.7, 0.7), 0.0))
+	_create_soft_blocking_prop(dungeon_root, "rotten_beam", position, Vector3(length, 0.22, 0.22), _mat("wood"), Vector3(0.0, randf_range(-0.7, 0.7), 0.0), Vector3(0.58, 0.8, 0.7))
 
 
 func _add_extinguished_torch(position: Vector3) -> void:
-	_add_cylinder(dungeon_root, "dead_torch_base", position + Vector3(0.0, 0.14, 0.0), 0.08, 0.35, _mat("stone"))
+	_create_soft_blocking_cylinder_prop(dungeon_root, "dead_torch_base", position + Vector3(0.0, 0.14, 0.0), 0.08, 0.35, _mat("stone"))
 	_add_box(dungeon_root, "dead_torch_coal", position + Vector3(0.0, 0.34, 0.0), Vector3(0.22, 0.08, 0.22), _mat("coal"))
 
 
@@ -1639,18 +1689,18 @@ func _add_standing_stones(room: Dictionary, count: int) -> void:
 	for i in range(count):
 		var angle := TAU * float(i) / float(count)
 		var position := _room_point(room, cos(angle) * 0.36, sin(angle) * 0.28, 0.28)
-		_add_box(dungeon_root, "standing_stone", position, Vector3(0.28, randf_range(0.45, 0.85), 0.24), _mat("stone"), false, Vector3(0.0, angle, 0.0))
+		_create_soft_blocking_prop(dungeon_root, "standing_stone", position, Vector3(0.28, randf_range(0.45, 0.85), 0.24), _mat("stone"), Vector3(0.0, angle, 0.0), Vector3(0.72, 0.8, 0.72))
 
 
 func _add_mushroom_cluster(position: Vector3) -> void:
 	var stem_height := randf_range(0.22, 0.42)
-	_add_cylinder(dungeon_root, "mushroom_stem", position + Vector3(0.0, stem_height * 0.5, 0.0), 0.055, stem_height, _mat("mushroom_stem"))
+	_create_soft_blocking_cylinder_prop(dungeon_root, "mushroom_stem", position + Vector3(0.0, stem_height * 0.5, 0.0), 0.055, stem_height, _mat("mushroom_stem"))
 	var cap := _add_sphere(dungeon_root, "mushroom_cap", position + Vector3(0.0, stem_height + 0.05, 0.0), randf_range(0.16, 0.25), _mat("mushroom_cap"), Vector3(1.35, 0.38, 1.1))
 	cap.rotation.y = randf() * TAU
 
 
 func _add_lost_neighborhood_hint(position: Vector3) -> void:
-	_add_box(dungeon_root, "lost_house_base", position + Vector3(0.0, 0.2, 0.0), Vector3(1.25, 0.4, 0.75), _mat("house"))
+	_create_blocking_prop(dungeon_root, "lost_house_base", position + Vector3(0.0, 0.2, 0.0), Vector3(1.25, 0.4, 0.75), _mat("house"))
 	_add_box(dungeon_root, "lost_house_roof", position + Vector3(0.0, 0.55, -0.04), Vector3(1.0, 0.24, 0.9), _mat("stone"), false, Vector3(0.0, 0.0, 0.15))
 	_add_box(dungeon_root, "lost_house_gap", position + Vector3(0.08, 0.22, -0.4), Vector3(0.32, 0.24, 0.08), _mat("wall_dark"))
 
@@ -1697,9 +1747,174 @@ func _add_debug_room_label(room_id: String) -> void:
 	label.global_position = center + Vector3(0.0, 1.7, 0.0)
 
 
+func _create_visual_prop(parent: Node, node_name: String, position: Vector3, size: Vector3, mat: Material, rotation := Vector3.ZERO) -> Node3D:
+	return _add_box(parent, node_name, position, size, mat, false, rotation)
+
+
+func _create_decorative_prop(parent: Node, node_name: String, position: Vector3, size: Vector3, mat: Material, rotation := Vector3.ZERO) -> Node3D:
+	return _create_visual_prop(parent, node_name, position, size, mat, rotation)
+
+
+func _create_non_blocking_prop(parent: Node, node_name: String, position: Vector3, size: Vector3, mat: Material, rotation := Vector3.ZERO) -> Node3D:
+	return _create_decorative_prop(parent, node_name, position, size, mat, rotation)
+
+
+func _create_soft_blocking_prop(parent: Node, node_name: String, position: Vector3, size: Vector3, mat: Material, rotation := Vector3.ZERO, collision_scale: Vector3 = Vector3(0.62, 0.85, 0.62), avoid_path_lanes := true) -> Node3D:
+	var collision_size := Vector3(
+		maxf(size.x * collision_scale.x, 0.18),
+		maxf(size.y * collision_scale.y, 0.16),
+		maxf(size.z * collision_scale.z, 0.18)
+	)
+	var footprint := Vector2(collision_size.x, collision_size.z)
+	var use_collision := parent == dungeon_root and _blocking_prop_position_is_safe(position, footprint, avoid_path_lanes)
+	var prop := _add_box_with_collision_size(parent, node_name, position, size, mat, use_collision, rotation, collision_size)
+	if use_collision:
+		_reserve_blocking_prop_position(position, clampf(maxf(footprint.x, footprint.y) * 0.5, 0.16, 0.48))
+	return prop
+
+
+func _create_soft_blocking_cylinder_prop(parent: Node, node_name: String, position: Vector3, radius: float, height: float, mat: Material, rotation := Vector3.ZERO, collision_radius_scale: float = 0.58, collision_height_scale: float = 0.75, avoid_path_lanes := true) -> Node3D:
+	var collision_radius := maxf(radius * collision_radius_scale, 0.12)
+	var collision_height := maxf(height * collision_height_scale, 0.16)
+	var footprint := Vector2(collision_radius * 2.0, collision_radius * 2.0)
+	var use_collision := parent == dungeon_root and _blocking_prop_position_is_safe(position, footprint, avoid_path_lanes)
+	var prop := _add_cylinder_with_collision_size(parent, node_name, position, radius, height, mat, use_collision, rotation, collision_radius, collision_height)
+	if use_collision:
+		_reserve_blocking_prop_position(position, clampf(collision_radius, 0.16, 0.48))
+	return prop
+
+
+func _create_blocking_prop(parent: Node, node_name: String, position: Vector3, size: Vector3, mat: Material, rotation := Vector3.ZERO, avoid_path_lanes := true) -> Node3D:
+	var footprint := Vector2(size.x, size.z)
+	var use_collision := parent == dungeon_root and _blocking_prop_position_is_safe(position, footprint, avoid_path_lanes)
+	var prop := _add_box(parent, node_name, position, size, mat, use_collision, rotation)
+	if use_collision:
+		_reserve_blocking_prop_position(position, clampf(maxf(footprint.x, footprint.y) * 0.5, 0.25, 0.85))
+	return prop
+
+
+func _create_blocking_cylinder_prop(parent: Node, node_name: String, position: Vector3, radius: float, height: float, mat: Material, rotation := Vector3.ZERO, avoid_path_lanes := true) -> Node3D:
+	var footprint := Vector2(radius * 2.0, radius * 2.0)
+	var use_collision := parent == dungeon_root and _blocking_prop_position_is_safe(position, footprint, avoid_path_lanes)
+	var prop := _add_cylinder(parent, node_name, position, radius, height, mat, use_collision, rotation)
+	if use_collision:
+		_reserve_blocking_prop_position(position, clampf(radius, 0.25, 0.85))
+	return prop
+
+
+func _blocking_prop_position_is_safe(position: Vector3, footprint: Vector2, avoid_path_lanes: bool) -> bool:
+	var room_id := _room_id_at_position(position)
+	if room_id.is_empty() or not rooms.has(room_id):
+		return true
+	var room: Dictionary = rooms[room_id] as Dictionary
+	if _is_in_door_clearance(room, position, footprint):
+		return false
+	if avoid_path_lanes and _is_in_tight_room_path_lane(room, position, footprint):
+		return false
+	var radius := maxf(footprint.x, footprint.y) * 0.5 + 0.35
+	return not _is_near_reserved_blocker(room_id, position, radius)
+
+
+func _is_in_door_clearance(room: Dictionary, position: Vector3, footprint: Vector2) -> bool:
+	var center: Vector3 = room["center"]
+	var size: Vector2 = room["size"]
+	var openings: Array = room["openings"] as Array
+	var local := Vector2(position.x - center.x, position.z - center.z)
+	var edge_band := 2.25 + maxf(footprint.x, footprint.y) * 0.35
+	var gap_clearance := DOOR_GAP * 0.5 + maxf(footprint.x, footprint.y) * 0.55
+	if openings.has("north") and absf(local.x) <= gap_clearance and local.y <= -size.y * 0.5 + edge_band:
+		return true
+	if openings.has("south") and absf(local.x) <= gap_clearance and local.y >= size.y * 0.5 - edge_band:
+		return true
+	if openings.has("west") and absf(local.y) <= gap_clearance and local.x <= -size.x * 0.5 + edge_band:
+		return true
+	if openings.has("east") and absf(local.y) <= gap_clearance and local.x >= size.x * 0.5 - edge_band:
+		return true
+	return false
+
+
+func _is_in_tight_room_path_lane(room: Dictionary, position: Vector3, footprint: Vector2) -> bool:
+	var size: Vector2 = room["size"]
+	if size.x > 12.5 and size.y > 9.0:
+		return false
+	var center: Vector3 = room["center"]
+	var openings: Array = room["openings"] as Array
+	var local := Vector2(position.x - center.x, position.z - center.z)
+	var lane_clearance := 1.15 + maxf(footprint.x, footprint.y) * 0.5
+	if openings.has("north") and openings.has("south") and absf(local.x) <= lane_clearance:
+		return true
+	if openings.has("west") and openings.has("east") and absf(local.y) <= lane_clearance:
+		return true
+	return false
+
+
+func _reserve_blocking_prop_position(position: Vector3, radius: float) -> void:
+	var room_id := _room_id_at_position(position)
+	if room_id.is_empty():
+		return
+	if not blocking_prop_positions.has(room_id):
+		blocking_prop_positions[room_id] = []
+	var entries: Array = blocking_prop_positions[room_id] as Array
+	entries.append({
+		"position": position,
+		"radius": radius,
+	})
+	blocking_prop_positions[room_id] = entries
+
+
+func _is_near_reserved_blocker(room_id: String, position: Vector3, radius: float) -> bool:
+	if not blocking_prop_positions.has(room_id):
+		return false
+	var entries: Array = blocking_prop_positions[room_id] as Array
+	for entry_variant in entries:
+		var entry: Dictionary = entry_variant as Dictionary
+		if not entry.has("position") or not entry.has("radius"):
+			continue
+		var blocker_position: Vector3 = entry["position"]
+		var blocker_radius := float(entry["radius"])
+		var distance_xz := Vector2(position.x - blocker_position.x, position.z - blocker_position.z).length()
+		if distance_xz < radius + blocker_radius + 0.35:
+			return true
+	return false
+
+
+func _safe_room_spawn_position(room: Dictionary, preferred_position: Vector3, clearance: float) -> Vector3:
+	var room_id := String(room["id"])
+	if not _is_near_reserved_blocker(room_id, preferred_position, clearance):
+		return preferred_position
+	var candidates: Array[Vector2] = [
+		Vector2(0.0, 0.0),
+		Vector2(0.24, -0.18),
+		Vector2(-0.24, -0.18),
+		Vector2(0.24, 0.18),
+		Vector2(-0.24, 0.18),
+		Vector2(0.0, -0.28),
+		Vector2(0.0, 0.28),
+	]
+	for candidate_ratio in candidates:
+		var candidate := _room_point(room, candidate_ratio.x, candidate_ratio.y, preferred_position.y)
+		if _is_in_door_clearance(room, candidate, Vector2(clearance * 2.0, clearance * 2.0)):
+			continue
+		if not _is_near_reserved_blocker(room_id, candidate, clearance):
+			return candidate
+	return preferred_position
+
+
+func _safe_pickup_position(position: Vector3, clearance: float) -> Vector3:
+	var room_id := _room_id_at_position(position)
+	if room_id.is_empty() or not rooms.has(room_id):
+		return position
+	var room: Dictionary = rooms[room_id] as Dictionary
+	return _safe_room_spawn_position(room, position, clearance)
+
+
 func _add_box(parent: Node, node_name: String, position: Vector3, size: Vector3, mat: Material, collision := false, rotation := Vector3.ZERO) -> Node3D:
+	return _add_box_with_collision_size(parent, node_name, position, size, mat, collision, rotation, size)
+
+
+func _add_box_with_collision_size(parent: Node, node_name: String, position: Vector3, visual_size: Vector3, mat: Material, collision := false, rotation := Vector3.ZERO, collision_size: Vector3 = Vector3.ZERO) -> Node3D:
 	var mesh := BoxMesh.new()
-	mesh.size = size
+	mesh.size = visual_size
 	var visual := MeshInstance3D.new()
 	visual.name = node_name
 	visual.mesh = mesh
@@ -1718,7 +1933,7 @@ func _add_box(parent: Node, node_name: String, position: Vector3, size: Vector3,
 		var shape := CollisionShape3D.new()
 		shape.name = "CollisionShape3D"
 		var box_shape := BoxShape3D.new()
-		box_shape.size = size
+		box_shape.size = collision_size if collision_size != Vector3.ZERO else visual_size
 		shape.shape = box_shape
 		body.add_child(shape)
 		return body
@@ -1729,7 +1944,11 @@ func _add_box(parent: Node, node_name: String, position: Vector3, size: Vector3,
 	return visual
 
 
-func _add_cylinder(parent: Node, node_name: String, position: Vector3, radius: float, height: float, mat: Material, _collision := false, rotation := Vector3.ZERO) -> Node3D:
+func _add_cylinder(parent: Node, node_name: String, position: Vector3, radius: float, height: float, mat: Material, collision := false, rotation := Vector3.ZERO) -> Node3D:
+	return _add_cylinder_with_collision_size(parent, node_name, position, radius, height, mat, collision, rotation, radius, height)
+
+
+func _add_cylinder_with_collision_size(parent: Node, node_name: String, position: Vector3, radius: float, height: float, mat: Material, collision := false, rotation := Vector3.ZERO, collision_radius: float = 0.0, collision_height: float = 0.0) -> Node3D:
 	var mesh := CylinderMesh.new()
 	mesh.top_radius = radius
 	mesh.bottom_radius = radius
@@ -1739,6 +1958,26 @@ func _add_cylinder(parent: Node, node_name: String, position: Vector3, radius: f
 	visual.name = node_name
 	visual.mesh = mesh
 	visual.material_override = mat
+
+	if collision:
+		var body := StaticBody3D.new()
+		body.name = node_name + "_Body"
+		body.collision_layer = 1
+		body.collision_mask = 0
+		parent.add_child(body)
+		body.global_position = position
+		body.rotation = rotation
+		body.add_child(visual)
+		visual.position = Vector3.ZERO
+		var shape := CollisionShape3D.new()
+		shape.name = "CollisionShape3D"
+		var cylinder_shape := CylinderShape3D.new()
+		cylinder_shape.radius = collision_radius if collision_radius > 0.0 else radius
+		cylinder_shape.height = collision_height if collision_height > 0.0 else height
+		shape.shape = cylinder_shape
+		body.add_child(shape)
+		return body
+
 	parent.add_child(visual)
 	visual.position = position
 	visual.rotation = rotation

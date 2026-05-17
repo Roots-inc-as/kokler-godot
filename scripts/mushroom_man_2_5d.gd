@@ -62,6 +62,13 @@ func _physics_process(delta: float) -> void:
 		target = get_tree().get_first_node_in_group("player_2_5d")
 		velocity = Vector3.ZERO
 		move_and_slide()
+		global_position.y = ground_y
+		return
+
+	if _run_is_locked():
+		velocity = Vector3.ZERO
+		move_and_slide()
+		global_position.y = ground_y
 		return
 
 	# AI durumunu güncelle
@@ -132,6 +139,8 @@ func apply_knockback(from_position: Vector3, force: float) -> void:
 
 
 func _poison_pulse() -> void:
+	if _run_is_locked():
+		return
 	if pulse_visual:
 		pulse_visual.visible = true
 		pulse_visual.scale = Vector3(0.35, 0.04, 0.35)
@@ -143,6 +152,10 @@ func _poison_pulse() -> void:
 		)
 	if target and global_position.distance_to(target.global_position) <= pulse_range and target.has_method("take_damage"):
 		target.call("take_damage", damage)
+
+
+func _run_is_locked() -> bool:
+	return manager and manager.has_method("is_run_locked") and manager.is_run_locked()
 
 
 func _animate_body(delta: float) -> void:

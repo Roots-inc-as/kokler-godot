@@ -31,9 +31,9 @@ func _on_body_entered(body: Node3D) -> void:
 	if not (manager and manager.has_method("collect_weapon")):
 		return
 	
-	var wm = body.get("weapon_manager")
+	var wm: WeaponManager25D = body.get("weapon_manager") as WeaponManager25D
 	if wm:
-		var full: bool = wm.is_inventory_full() if wm.has_method("is_inventory_full") else false
+		var full: bool = wm.is_inventory_full()
 		var already: bool = wm.owned_weapons.has(weapon_id)
 		
 		if full and not already:

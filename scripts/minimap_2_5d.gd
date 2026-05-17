@@ -34,8 +34,16 @@ func _ready() -> void:
 
 
 func setup_map(map_data: Dictionary) -> void:
-	rooms = map_data.get("rooms", {}) as Dictionary
-	connections = map_data.get("connections", []) as Array
+	var rooms_variant: Variant = map_data.get("rooms", {})
+	var connections_variant: Variant = map_data.get("connections", [])
+	if rooms_variant is Dictionary:
+		rooms = rooms_variant as Dictionary
+	else:
+		rooms = {}
+	if connections_variant is Array:
+		connections = connections_variant as Array
+	else:
+		connections = []
 	start_room_id = String(map_data.get("start_room_id", ""))
 	key_room_id = String(map_data.get("key_room_id", ""))
 	exit_room_id = String(map_data.get("exit_room_id", ""))
@@ -161,7 +169,7 @@ func _room_position(room_id: String) -> Vector2:
 	if not rooms.has(room_id):
 		return size * 0.5
 	var room_info: Dictionary = rooms[room_id] as Dictionary
-	var cell: Vector2i = room_info.get("cell", Vector2i.ZERO)
+	var cell := _cell_from_room_info(room_info)
 	var grid_size := Vector2(float(max_cell.x - min_cell.x + 1), float(max_cell.y - min_cell.y + 1))
 	var map_origin := Vector2(
 		(size.x - grid_size.x * cell_spacing) * 0.5 + cell_spacing * 0.5,
@@ -174,7 +182,10 @@ func _neighbors_for(room_id: String) -> Array:
 	if not rooms.has(room_id):
 		return []
 	var room_info: Dictionary = rooms[room_id] as Dictionary
-	return room_info.get("neighbors", []) as Array
+	var neighbors_variant: Variant = room_info.get("neighbors", [])
+	if neighbors_variant is Array:
+		return neighbors_variant as Array
+	return []
 
 
 func _calculate_bounds() -> void:
@@ -182,7 +193,7 @@ func _calculate_bounds() -> void:
 	for room_id_variant in rooms.keys():
 		var room_id := String(room_id_variant)
 		var room_info: Dictionary = rooms[room_id] as Dictionary
-		var cell: Vector2i = room_info.get("cell", Vector2i.ZERO)
+		var cell := _cell_from_room_info(room_info)
 		if first:
 			min_cell = cell
 			max_cell = cell
@@ -192,3 +203,12 @@ func _calculate_bounds() -> void:
 			min_cell.y = mini(min_cell.y, cell.y)
 			max_cell.x = maxi(max_cell.x, cell.x)
 			max_cell.y = maxi(max_cell.y, cell.y)
+
+
+func _cell_from_room_info(room_info: Dictionary) -> Vector2i:
+	var cell_variant: Variant = room_info.get("cell", Vector2i.ZERO)
+	if cell_variant is Vector2i:
+		return cell_variant
+	if cell_variant is Vector2:
+		return Vector2i(cell_variant)
+	return Vector2i.ZERO

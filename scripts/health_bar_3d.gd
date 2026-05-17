@@ -10,6 +10,8 @@ class_name HealthBar3D
 
 var _back: MeshInstance3D
 var _fill: MeshInstance3D
+var _pending_current_hp := -1
+var _pending_max_hp := 0
 
 
 func _ready() -> void:
@@ -19,10 +21,14 @@ func _ready() -> void:
 	_fill.position = Vector3(0.0, 0.0, -0.01)
 	add_child(_back)
 	add_child(_fill)
+	if _pending_current_hp >= 0:
+		set_health(_pending_current_hp, _pending_max_hp)
 
 
 func set_health(current_hp: int, max_hp: int) -> void:
 	if not _fill:
+		_pending_current_hp = current_hp
+		_pending_max_hp = max_hp
 		return
 	var ratio := 0.0
 	if max_hp > 0:

@@ -37,7 +37,8 @@ func _on_body_entered(body: Node3D) -> void:
 	if source and source.is_in_group("player_2_5d"):
 		if body.is_in_group("enemy_2_5d") and body.has_method("take_damage"):
 			body.call("take_damage", damage)
-			queue_free()
+		queue_free()
+		return
 	elif body.is_in_group("player_2_5d") and body.has_method("take_damage"):
 		body.call("take_damage", damage)
-		queue_free()
+	queue_free()

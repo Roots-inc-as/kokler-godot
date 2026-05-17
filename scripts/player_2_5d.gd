@@ -213,16 +213,6 @@ func _start_attack_with_slot(slot: int) -> void:
 func _start_attack() -> void:
 	_start_attack_with_slot(1)
 
-	var weapon := _get_current_weapon()
-	attack_cooldown_remaining = weapon.attack_cooldown if weapon else attack_cooldown
-
-	combo_count = (combo_count + 1) if combo_window_remaining > 0.0 else 1
-	if combo_count > 3:
-		combo_count = 1
-	combo_window_remaining = weapon.combo_window if weapon else combo_window
-
-	_swing_weapon()
-
 
 func _swing_weapon_for_slot(slot: int, weapon: WeaponData) -> void:
 	hit_targets.clear()
@@ -380,7 +370,13 @@ func _fire_projectile(weapon: WeaponData) -> void:
 	if not weapon.projectile_scene:
 		return
 	var projectile := weapon.projectile_scene.instantiate() as Node3D
-	get_tree().current_scene.add_child(projectile)
+	if projectile == null:
+		return
+	var scene_root := get_tree().current_scene
+	if scene_root:
+		scene_root.add_child(projectile)
+	else:
+		add_child(projectile)
 	var start_position := global_position + Vector3(0.0, 0.45, 0.0) + last_direction.normalized() * 0.85
 	if projectile.has_method("setup"):
 		projectile.call("setup", start_position, last_direction, weapon.damage, self)
