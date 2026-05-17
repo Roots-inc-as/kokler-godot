@@ -74,6 +74,35 @@ func force_add_weapon(weapon_id: String) -> bool:
 	owned_weapons.append(weapon_id)
 	_emit_weapon_changed()
 	return true
+	
+	# Silahı belirli bir slot'a koyar (slot boş olmalı)
+func add_weapon_at_slot(weapon_id: String, slot: int) -> bool:
+	if not weapons.has(weapon_id):
+		return false
+	if owned_weapons.has(weapon_id):
+		return false
+	var index := slot - 1
+	if index < 0 or index >= MAX_WEAPONS:
+		return false
+	# Yeni silahı seçilen slot'a yerleştir
+	# Eğer o pozisyonda zaten bir şey yoksa append, varsa insert
+	if index >= owned_weapons.size():
+		owned_weapons.append(weapon_id)
+	else:
+		owned_weapons.insert(index, weapon_id)
+	_emit_weapon_changed()
+	return true
+
+
+# İki slot'u yer değiştir (envanter ekranı için)
+func swap_slots() -> bool:
+	if owned_weapons.size() < 2:
+		return false
+	var temp = owned_weapons[0]
+	owned_weapons[0] = owned_weapons[1]
+	owned_weapons[1] = temp
+	_emit_weapon_changed()
+	return true
 
 
 # Slottaki silahı getir (1 veya 2)

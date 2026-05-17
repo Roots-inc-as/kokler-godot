@@ -1,52 +1,7 @@
-[gd_scene load_steps=15 format=3]
+[gd_scene format=3 uid="uid://cdm0eis2ya3w4"]
 
-[ext_resource type="Script" path="res://scripts/player_2_5d.gd" id="1_player"]
-
-[sub_resource type="StandardMaterial3D" id="Material_body"]
-albedo_color = Color(0.82, 0.70, 0.54, 1)
-roughness = 0.92
-
-[sub_resource type="StandardMaterial3D" id="Material_head"]
-albedo_color = Color(0.88, 0.78, 0.62, 1)
-roughness = 0.92
-
-[sub_resource type="StandardMaterial3D" id="Material_cloak"]
-albedo_color = Color(0.16, 0.12, 0.10, 1)
-roughness = 0.96
-
-[sub_resource type="StandardMaterial3D" id="Material_knife"]
-albedo_color = Color(0.62, 0.60, 0.54, 1)
-roughness = 0.82
-
-[sub_resource type="StandardMaterial3D" id="Material_attack"]
-albedo_color = Color(0.72, 0.62, 0.47, 0.45)
-roughness = 0.88
-transparency = 1
-
-[sub_resource type="CapsuleMesh" id="CapsuleMesh_body"]
-radius = 0.23
-height = 0.95
-radial_segments = 10
-rings = 4
-
-[sub_resource type="SphereMesh" id="SphereMesh_head"]
-radius = 0.21
-height = 0.42
-radial_segments = 10
-rings = 5
-
-[sub_resource type="BoxMesh" id="BoxMesh_cloak"]
-size = Vector3(0.58, 0.72, 0.16)
-
-[sub_resource type="BoxMesh" id="BoxMesh_arm"]
-size = Vector3(0.13, 0.42, 0.12)
-
-[sub_resource type="BoxMesh" id="BoxMesh_knife"]
-size = Vector3(0.08, 0.08, 0.46)
-
-[sub_resource type="CapsuleShape3D" id="CapsuleShape_player"]
-radius = 0.25
-height = 1.22
+[ext_resource type="Script" uid="uid://dk6sw576h77hy" path="res://scripts/player_2_5d.gd" id="1_player"]
+[ext_resource type="PackedScene" uid="uid://cbxaqv43nuxtt" path="res://Character/karakter.glb" id="2_2vuae"]
 
 [sub_resource type="BoxShape3D" id="BoxShape_attack"]
 size = Vector3(1.15, 0.9, 1.05)
@@ -54,64 +9,117 @@ size = Vector3(1.15, 0.9, 1.05)
 [sub_resource type="BoxMesh" id="BoxMesh_attack"]
 size = Vector3(1.15, 0.08, 1.05)
 
-[node name="Asha" type="CharacterBody3D"]
+[sub_resource type="StandardMaterial3D" id="Material_attack"]
+transparency = 1
+albedo_color = Color(0.72, 0.62, 0.47, 0.45)
+roughness = 0.88
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape_player"]
+radius = 0.25
+height = 1.22
+
+[node name="Asha" type="CharacterBody3D" unique_id=1216549387]
 collision_layer = 2
-collision_mask = 1
 script = ExtResource("1_player")
 
-[node name="Model" type="Node3D" parent="."]
+[node name="Model" type="Node3D" parent="." unique_id=956248942]
 
-[node name="Body" type="MeshInstance3D" parent="Model"]
-position = Vector3(0, 0.64, 0)
-mesh = SubResource("CapsuleMesh_body")
-surface_material_override/0 = SubResource("Material_body")
+[node name="karakter" parent="Model" unique_id=800181209 instance=ExtResource("2_2vuae")]
 
-[node name="Head" type="MeshInstance3D" parent="Model"]
-position = Vector3(0, 1.25, 0.04)
-mesh = SubResource("SphereMesh_head")
-surface_material_override/0 = SubResource("Material_head")
+[node name="Skeleton3D" parent="Model/karakter/Armature" parent_id_path=PackedInt32Array(800181209, 1252664957) index="0" unique_id=119291811]
+bones/0/position = Vector3(2.0035129, -2.9347248, -93.636444)
+bones/0/rotation = Quaternion(-0.6831452, -0.26850754, 0.25065035, 0.631182)
+bones/1/rotation = Quaternion(0.03236296, 0.040412836, -0.008570295, 0.9986221)
+bones/2/rotation = Quaternion(0.100634456, 0.08163561, -0.015607909, 0.9914458)
+bones/3/rotation = Quaternion(0.10063449, 0.08163555, -0.015607879, 0.9914458)
+bones/4/rotation = Quaternion(-0.019471595, -0.01113662, 0.0019791897, 0.9997465)
+bones/5/rotation = Quaternion(-0.05446896, 0.17692319, -0.012970532, 0.9826307)
+bones/7/rotation = Quaternion(-0.5704054, -0.43176422, 0.558581, -0.41976753)
+bones/8/rotation = Quaternion(0.462124, -0.08149311, 0.054057814, 0.88140684)
+bones/9/rotation = Quaternion(-0.024019714, 0.052652232, 0.40445787, 0.91272384)
+bones/10/position = Vector3(-1.8295926e-06, 21.717072, 1.562695e-05)
+bones/10/rotation = Quaternion(-0.16099347, 0.11154402, -0.027611349, 0.9802432)
+bones/11/rotation = Quaternion(0.28194517, 0.10599694, 0.22016029, 0.9277937)
+bones/12/position = Vector3(-0.0012037754, 4.233866, 6.9326297e-06)
+bones/12/rotation = Quaternion(-0.0072947564, -0.0023668443, -0.034281313, 0.9993828)
+bones/13/rotation = Quaternion(-7.767201e-06, -0.0010823578, 0.07576573, 0.997125)
+bones/14/position = Vector3(0.2649915, 3.1775646, 2.6971109e-06)
+bones/15/rotation = Quaternion(0.026979517, -0.00021664452, 0.10319502, 0.99429524)
+bones/16/position = Vector3(0.0009699464, 2.1022592, -4.6344257e-07)
+bones/16/rotation = Quaternion(0.14266875, 0.00014953154, -0.02480211, 0.98945975)
+bones/17/rotation = Quaternion(-1.4416062e-06, -0.00052632025, 0.034451824, 0.9994063)
+bones/18/position = Vector3(0.062339306, 1.6573589, 6.67572e-06)
+bones/19/rotation = Quaternion(0.11578918, 0.00797685, -0.029368801, 0.9928075)
+bones/20/rotation = Quaternion(0.18997714, -0.0012109127, -0.020470597, 0.9815744)
+bones/21/rotation = Quaternion(-2.2688664e-05, 0.0011651249, 0.008150276, 0.9999661)
+bones/22/position = Vector3(-0.02170968, 1.8722006, 6.2584877e-06)
+bones/23/rotation = Quaternion(0.2547191, -0.015470432, -0.092542335, 0.96245253)
+bones/24/position = Vector3(0.025107265, 2.0635972, -1.1744578e-06)
+bones/24/rotation = Quaternion(0.27633727, 0.002156691, -0.0029974163, 0.9610537)
+bones/25/position = Vector3(-0.03643775, 1.9574589, -5.1223374e-06)
+bones/25/rotation = Quaternion(-4.819006e-06, 0.00072424044, 0.013244373, 0.9999121)
+bones/27/rotation = Quaternion(0.2791408, -0.019579168, -0.12498446, 0.9518803)
+bones/28/position = Vector3(0.03508097, 1.8957214, -1.5640206e-06)
+bones/28/rotation = Quaternion(0.3382717, 0.010049161, 0.020558527, 0.9407702)
+bones/29/rotation = Quaternion(5.823425e-06, -0.0004913118, -0.0047652298, 0.99998856)
+bones/31/rotation = Quaternion(0.61976236, -0.3884139, 0.5230369, 0.43756342)
+bones/32/position = Vector3(-1.1344342e-06, 16.147585, -1.227426e-05)
+bones/32/rotation = Quaternion(0.4292688, 0.08033998, 0.18139005, 0.88111943)
+bones/33/position = Vector3(-3.0806873e-06, 18.952646, -5.617801e-06)
+bones/33/rotation = Quaternion(0.036777113, 0.034128048, -0.3604349, 0.9314341)
+bones/34/rotation = Quaternion(0.10764486, -0.051637873, -0.05650081, 0.99123853)
+bones/35/position = Vector3(2.401744, 4.5308294, 1.264267)
+bones/35/rotation = Quaternion(0.21075495, 0.03305366, -0.2776147, 0.93670696)
+bones/36/rotation = Quaternion(-0.0053756344, 0.0025967767, 0.23073563, 0.9729982)
+bones/37/position = Vector3(0.25566196, 3.9368503, -4.369403e-07)
+bones/37/rotation = Quaternion(-1.6377366e-05, -0.0010364183, -0.04904287, 0.99879616)
+bones/38/position = Vector3(-0.118520886, 3.5607834, -1.4007097e-06)
+bones/39/rotation = Quaternion(0.036565606, 0.0023263844, -0.04889374, 0.9981317)
+bones/40/rotation = Quaternion(0.14722507, 0.0003026598, 0.035883993, 0.9884519)
+bones/41/rotation = Quaternion(-6.5951704e-06, -0.00043300205, -0.005186132, 0.9999865)
+bones/43/rotation = Quaternion(0.10777509, 0.0071325805, -0.028791992, 0.99373275)
+bones/44/position = Vector3(-0.058538437, 2.5805705, -2.7077995e-06)
+bones/44/rotation = Quaternion(0.2638902, 0.0015951495, 0.008113983, 0.9645173)
+bones/45/position = Vector3(0.037237644, 2.3216927, 8.359873e-07)
+bones/45/rotation = Quaternion(-5.0862745e-06, -0.00038517866, -0.0027161809, 0.99999624)
+bones/46/position = Vector3(0.021306992, 2.011429, -4.172325e-07)
+bones/47/rotation = Quaternion(0.18223844, -0.011830047, 0.016619127, 0.9830427)
+bones/48/rotation = Quaternion(0.32116553, -0.0015288114, -0.010277605, 0.9469661)
+bones/49/position = Vector3(0.02711165, 2.5273488, -5.3509484e-07)
+bones/49/rotation = Quaternion(7.749751e-06, 0.0005112972, 0.0034022161, 0.99999416)
+bones/50/position = Vector3(0.032078505, 1.8312311, -1.1920804e-07)
+bones/51/rotation = Quaternion(0.20120348, -0.008201829, 0.04805531, 0.9783356)
+bones/52/rotation = Quaternion(0.35182968, -0.011903655, -0.04281958, 0.9350084)
+bones/53/rotation = Quaternion(-3.3143233e-06, -0.00048463713, -0.0035494661, 0.99999356)
+bones/54/position = Vector3(0.0045381784, 1.1452663, 5.841255e-06)
+bones/55/rotation = Quaternion(0.075879745, 0.22115529, 0.9670203, -0.101016946)
+bones/56/rotation = Quaternion(-0.3145313, 0.11868591, -0.026924476, 0.9414132)
+bones/57/rotation = Quaternion(0.47671354, -0.06801762, -0.020693857, 0.8761791)
+bones/58/rotation = Quaternion(0.3626345, -0.023599468, -0.010150045, 0.9315774)
+bones/60/rotation = Quaternion(-0.12311767, 0.019137694, 0.9842348, 0.1255297)
+bones/61/rotation = Quaternion(-0.3069512, 0.07696656, -0.028216675, 0.94818825)
+bones/62/rotation = Quaternion(0.5830496, 0.10907225, 0.098353036, 0.79905146)
+bones/63/rotation = Quaternion(0.36329207, 0.040972598, -0.014780311, 0.9306567)
 
-[node name="Cloak" type="MeshInstance3D" parent="Model"]
-position = Vector3(0, 0.66, -0.22)
-rotation = Vector3(0.18, 0, 0)
-mesh = SubResource("BoxMesh_cloak")
-surface_material_override/0 = SubResource("Material_cloak")
-
-[node name="LeftArm" type="MeshInstance3D" parent="Model"]
-position = Vector3(-0.27, 0.72, 0.08)
-rotation = Vector3(0, 0, 0.25)
-mesh = SubResource("BoxMesh_arm")
-surface_material_override/0 = SubResource("Material_body")
-
-[node name="RightArm" type="MeshInstance3D" parent="Model"]
-position = Vector3(0.27, 0.72, 0.08)
-rotation = Vector3(0, 0, -0.25)
-mesh = SubResource("BoxMesh_arm")
-surface_material_override/0 = SubResource("Material_body")
-
-[node name="KnifeForwardMarker" type="MeshInstance3D" parent="Model"]
-position = Vector3(0.28, 0.6, 0.46)
-rotation = Vector3(0, 0.25, 0)
-mesh = SubResource("BoxMesh_knife")
-surface_material_override/0 = SubResource("Material_knife")
-
-[node name="AttackArea" type="Area3D" parent="Model"]
-position = Vector3(0, 0.58, 0.82)
+[node name="AttackArea" type="Area3D" parent="Model" unique_id=131371162]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.58, 0.82)
 collision_layer = 0
 collision_mask = 4
 monitoring = false
 monitorable = false
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Model/AttackArea"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Model/AttackArea" unique_id=305388710]
 shape = SubResource("BoxShape_attack")
 disabled = true
 
-[node name="AttackVisual" type="MeshInstance3D" parent="Model/AttackArea"]
+[node name="AttackVisual" type="MeshInstance3D" parent="Model/AttackArea" unique_id=799790032]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.4, 0)
 visible = false
-position = Vector3(0, -0.4, 0)
 mesh = SubResource("BoxMesh_attack")
 surface_material_override/0 = SubResource("Material_attack")
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
-position = Vector3(0, 0.62, 0)
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=879310863]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.62, 0)
 shape = SubResource("CapsuleShape_player")
+
+[editable path="Model/karakter"]

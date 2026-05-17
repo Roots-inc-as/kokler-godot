@@ -10,8 +10,9 @@ const HEALTH_BAR_SCRIPT := preload("res://scripts/health_bar_3d.gd")
 @export var pulse_cooldown := 1.35
 @export var ground_y := 0.05
 # AI ayarları
-@export var detect_radius := 5.0
-@export var lose_radius := 8.0
+@export var detect_radius := 15.0
+@export var lose_radius := 14.0
+@export var nav_active_distance := 3.0
 
 var hp := max_hp
 var target: Node3D
@@ -27,6 +28,8 @@ enum State { IDLE, CHASE, LOST }
 var state: int = State.IDLE
 var last_known_player_pos := Vector3.ZERO
 var lost_timer := 0.0
+var nav_agent: NavigationAgent3D
+var nav_update_timer := 0.0
 
 @onready var model: Node3D = $Model
 @onready var cap: MeshInstance3D = $Model/Cap
@@ -84,9 +87,13 @@ func _physics_process(delta: float) -> void:
 		State.IDLE:
 			velocity = Vector3.ZERO
 		State.CHASE:
-			# Preferred distance koruma davranışı
-			if distance > preferred_distance + 0.45:
+			# Çok uzaktayken NavAgent ile yaklaş
+			if distance > preferred_distance + nav_active_distance:
+				velocity = _navigation_movement(target.global_position) * move_speed
+			# Preferred mesafenin biraz üstündeyken direkt yaklaş
+			elif distance > preferred_distance + 0.45:
 				velocity = direction * move_speed
+			# Çok yakındaysa geri çekil (NavAgent kullanmıyoruz, direkt geri)
 			elif distance < preferred_distance - 0.45:
 				velocity = -direction * move_speed * 0.75
 			else:
@@ -94,8 +101,8 @@ func _physics_process(delta: float) -> void:
 		State.LOST:
 			var to_last := last_known_player_pos - global_position
 			to_last.y = 0.0
-			if to_last.length() > 0.3:
-				velocity = to_last.normalized() * move_speed * 0.7
+			if to_last.length() > 0.5:
+				velocity = _navigation_movement(last_known_player_pos) * move_speed * 0.7
 			else:
 				velocity = Vector3.ZERO
 
@@ -116,6 +123,17 @@ func _physics_process(delta: float) -> void:
 
 	if pulse_visual and pulse_visual.visible:
 		pulse_visual.scale = pulse_visual.scale.lerp(Vector3(3.1, 0.04, 3.1), delta * 8.0)
+		
+		# NavigationAgent3D ekle
+	nav_agent = NavigationAgent3D.new()
+	nav_agent.name = "NavAgent"
+	nav_agent.path_desired_distance = 0.5
+	nav_agent.target_desired_distance = 0.5
+	nav_agent.radius = 0.2
+	nav_agent.height = 1.2
+	nav_agent.avoidance_enabled = false
+	nav_agent.path_max_distance = 200
+	add_child(nav_agent)
 
 
 func take_damage(amount: int) -> void:
@@ -218,3 +236,22 @@ func _update_state(delta: float) -> void:
 				state = State.CHASE
 			elif lost_timer <= 0.0:
 				state = State.IDLE
+
+func _navigation_movement(destination: Vector3) -> Vector3:
+	if nav_agent == null:
+		return Vector3.ZERO
+	
+	nav_update_timer -= get_physics_process_delta_time()
+	if nav_update_timer <= 0.0:
+		nav_agent.target_position = destination
+		nav_update_timer = 0.3
+	
+	if nav_agent.is_navigation_finished():
+		return Vector3.ZERO
+	
+	var next_pos := nav_agent.get_next_path_position()
+	var dir := next_pos - global_position
+	dir.y = 0.0
+	if dir.length() > 0.05:
+		return dir.normalized()
+	return Vector3.ZERO

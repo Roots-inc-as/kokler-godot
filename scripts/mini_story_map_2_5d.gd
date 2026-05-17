@@ -226,8 +226,8 @@ func _on_weapon_swap_chosen(slot: int, new_weapon_id: String) -> void:
 		var drop_position := player.global_position + Vector3(0.0, 0.0, 0.8)
 		_spawn_weapon_pickup(drop_position, dropped_id)
 	
-	# Yeni silahı zorla ekle
-	manager.force_add_weapon(new_weapon_id)
+	# Yeni silahı oyuncunun seçtiği slot'a ekle
+	manager.add_weapon_at_slot(new_weapon_id, slot)
 	
 	var dropped_name := dropped_id
 	if player.has_method("get_weapon_display_name") and not dropped_id.is_empty():

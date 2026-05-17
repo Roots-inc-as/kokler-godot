@@ -27,6 +27,7 @@ signal died
 @onready var attack_area: Area3D = $Model/AttackArea
 @onready var attack_shape: CollisionShape3D = $Model/AttackArea/CollisionShape3D
 @onready var attack_visual: MeshInstance3D = $Model/AttackArea/AttackVisual
+@onready var animation_player: AnimationPlayer = $Model/karakter/AnimationPlayer
 
 var current_hp := 0
 var last_direction := Vector3.BACK
@@ -49,6 +50,7 @@ var combo_count := 0
 var combo_window_remaining := 0.0
 var attacking := false
 var attack_visual_base_scale := Vector3.ONE
+var current_anim: String = ""
 var story_manager: Node
 var weapon_manager: WeaponManager25D
 var current_weapon: WeaponData
@@ -94,7 +96,9 @@ func _physics_process(delta: float) -> void:
 		model.rotation.y = atan2(last_direction.x, last_direction.z)
 
 	_handle_weapon_switch_input()
-
+	
+	if Input.is_action_just_pressed("inventory"):
+		_toggle_inventory_screen()
 	if Input.is_action_just_pressed("attack"):
 		_start_attack_with_slot(1)
 	if Input.is_action_just_pressed("attack_secondary"):
@@ -119,6 +123,7 @@ func _physics_process(delta: float) -> void:
 	velocity.y = 0.0
 	move_and_slide()
 	_lock_to_ground()
+	_update_animation()
 	
 	
 
@@ -427,6 +432,7 @@ func _ensure_input_actions() -> void:
 	_add_mouse_action("attack_secondary", MOUSE_BUTTON_RIGHT)
 	for i in range(5):
 		_add_key_action(StringName("weapon_%d" % [i + 1]), KEY_1 + i)
+		_add_key_action("inventory", KEY_I)
 
 
 func _add_key_action(action_name: StringName, keycode: int) -> void:
@@ -482,3 +488,38 @@ func _hit_pause(duration: float = 0.06, scale: float = 0.05) -> void:
 	Engine.time_scale = scale
 	await get_tree().create_timer(duration, true, false, true).timeout
 	Engine.time_scale = 1.0
+
+const INVENTORY_SCREEN_SCRIPT := preload("res://scripts/inventory_screen.gd")
+
+var _active_inventory_screen: CanvasLayer
+
+func _toggle_inventory_screen() -> void:
+	# Zaten açıksa kapat
+	if _active_inventory_screen and is_instance_valid(_active_inventory_screen):
+		_active_inventory_screen.queue_free()
+		_active_inventory_screen = null
+		return
+	# Aç
+	var screen: CanvasLayer = INVENTORY_SCREEN_SCRIPT.new()
+	get_tree().current_scene.add_child(screen)
+	screen.setup(weapon_manager)
+	screen.closed.connect(func(): _active_inventory_screen = null)
+	_active_inventory_screen = screen
+
+func _update_animation() -> void:
+	if not animation_player:
+		return
+	
+	var target_anim := ""
+	# Hareket hızına göre anim seç
+	var horizontal_speed := Vector2(velocity.x, velocity.z).length()
+	if horizontal_speed > 0.5:
+		target_anim = "walking"
+	else:
+		target_anim = "idle"
+	
+	# Animasyon zaten oynuyor mu kontrol et
+	if current_anim != target_anim:
+		current_anim = target_anim
+		if animation_player.has_animation(target_anim):
+			animation_player.play(target_anim)
