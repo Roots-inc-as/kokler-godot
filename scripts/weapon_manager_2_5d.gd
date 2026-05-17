@@ -4,6 +4,7 @@ class_name WeaponManager25D
 signal weapon_changed(weapon: WeaponData, owned_weapons: Array[String])
 
 const PROJECTILE_SCENE := preload("res://scenes/spore_projectile_2_5d.tscn")
+const MAX_WEAPONS := 2
 
 var weapons: Dictionary = {}
 var owned_weapons: Array[String] = []
@@ -17,11 +18,11 @@ func _ready() -> void:
 
 func setup_default_weapons() -> void:
 	weapons.clear()
-	_add_weapon_data(WeaponData.create("knife", "Haritacı Bıçağı", "melee", 1, 0.35, 1.25, 2.0, "slash", Color(0.95, 0.88, 0.68)))
-	_add_weapon_data(WeaponData.create("mace", "Taş Tokmak", "melee", 3, 0.80, 1.20, 5.0, "heavy", Color(0.58, 0.55, 0.50)))
-	_add_weapon_data(WeaponData.create("spear", "Kemik Mızrak", "melee", 2, 0.55, 1.85, 3.0, "thrust", Color(0.82, 0.78, 0.62)))
-	_add_weapon_data(WeaponData.create("ember_staff", "Kor Çubuğu", "melee", 1, 0.70, 1.55, 2.5, "ember", Color(0.95, 0.35, 0.12)))
-	_add_weapon_data(WeaponData.create("mushroom_sling", "Mantar Sapanı", "ranged", 1, 0.65, 5.5, 1.5, "sling", Color(0.78, 0.36, 0.45), true, PROJECTILE_SCENE))
+	_add_weapon_data(WeaponData.create("knife", "Haritacı Bıçağı", "melee", 1, 0.35, 1.25, 2.0, "slash", Color(0.95, 0.88, 0.68), false, null, 0.6))
+	_add_weapon_data(WeaponData.create("mace", "Taş Tokmak", "melee", 3, 0.80, 1.20, 5.0, "heavy", Color(0.58, 0.55, 0.50), false, null, 1.1))
+	_add_weapon_data(WeaponData.create("spear", "Kemik Mızrak", "melee", 2, 0.55, 1.85, 3.0, "thrust", Color(0.82, 0.78, 0.62), false, null, 0.85))
+	_add_weapon_data(WeaponData.create("ember_staff", "Kor Çubuğu", "melee", 1, 0.70, 1.55, 2.5, "ember", Color(0.95, 0.35, 0.12), false, null, 0.95))
+	_add_weapon_data(WeaponData.create("mushroom_sling", "Mantar Sapanı", "ranged", 1, 0.65, 5.5, 1.5, "sling", Color(0.78, 0.36, 0.45), true, PROJECTILE_SCENE, 1.0))
 	if owned_weapons.is_empty():
 		add_weapon("knife")
 	current_index = clampi(current_index, 0, max(owned_weapons.size() - 1, 0))
@@ -37,11 +38,50 @@ func add_weapon(weapon_id: String) -> bool:
 		return false
 	if owned_weapons.has(weapon_id):
 		return false
+	# Envanter doluysa eklemeyi reddet — popup'la yer açıldıktan sonra eklenecek
+	if owned_weapons.size() >= MAX_WEAPONS:
+		return false
 	owned_weapons.append(weapon_id)
-	if owned_weapons.size() == 1:
-		current_index = 0
 	_emit_weapon_changed()
 	return true
+
+
+func is_inventory_full() -> bool:
+	return owned_weapons.size() >= MAX_WEAPONS
+
+
+# Belirli slottaki silahı çıkarır, ID'sini döner
+func drop_weapon_at_slot(slot: int) -> String:
+	var index := slot - 1
+	if index < 0 or index >= owned_weapons.size():
+		return ""
+	var dropped_id: String = owned_weapons[index]
+	owned_weapons.remove_at(index)
+	# Current index'i güvenli aralıkta tut
+	if owned_weapons.is_empty():
+		current_index = 0
+	else:
+		current_index = clampi(current_index, 0, owned_weapons.size() - 1)
+	_emit_weapon_changed()
+	return dropped_id
+	
+	# Envanter dolu olsa bile silah ekler (popup sonrası kullanılır)
+func force_add_weapon(weapon_id: String) -> bool:
+	if not weapons.has(weapon_id):
+		return false
+	if owned_weapons.has(weapon_id):
+		return false
+	owned_weapons.append(weapon_id)
+	_emit_weapon_changed()
+	return true
+
+
+# Slottaki silahı getir (1 veya 2)
+func get_weapon_at_slot(slot: int) -> WeaponData:
+	var index := slot - 1
+	if index < 0 or index >= owned_weapons.size():
+		return null
+	return weapons.get(owned_weapons[index])
 
 
 func switch_to_slot(slot: int) -> bool:

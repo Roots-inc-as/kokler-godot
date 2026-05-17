@@ -33,7 +33,16 @@ var last_direction := Vector3.BACK
 var dash_direction := Vector3.BACK
 var dash_time_remaining := 0.0
 var dash_cooldown_remaining := 0.0
-var attack_cooldown_remaining := 0.0
+# İki silah için ayrı cooldownlar
+var attack_cooldown_remaining := 0.0  # Slot 1 (sol tık)
+var attack_cooldown_2_remaining := 0.0  # Slot 2 (sağ tık)
+
+# İki silah için ayrı combolar
+var combo_count_2 := 0
+var combo_window_2_remaining := 0.0
+
+# Şu an saldıran slot (1 veya 2)
+var current_attack_slot := 1
 var invulnerable_remaining := 0.0
 var hit_targets := {}
 var combo_count := 0
@@ -87,7 +96,9 @@ func _physics_process(delta: float) -> void:
 	_handle_weapon_switch_input()
 
 	if Input.is_action_just_pressed("attack"):
-		_start_attack()
+		_start_attack_with_slot(1)
+	if Input.is_action_just_pressed("attack_secondary"):
+		_start_attack_with_slot(2)
 
 	if dash_time_remaining > 0.0:
 		dash_time_remaining = maxf(dash_time_remaining - delta, 0.0)
@@ -108,7 +119,8 @@ func _physics_process(delta: float) -> void:
 	velocity.y = 0.0
 	move_and_slide()
 	_lock_to_ground()
-
+	
+	
 
 func get_health_state() -> Dictionary:
 	return {
@@ -151,10 +163,14 @@ func get_weapon_display_name(weapon_id: String) -> String:
 func _tick_timers(delta: float) -> void:
 	dash_cooldown_remaining = maxf(dash_cooldown_remaining - delta, 0.0)
 	attack_cooldown_remaining = maxf(attack_cooldown_remaining - delta, 0.0)
+	attack_cooldown_2_remaining = maxf(attack_cooldown_2_remaining - delta, 0.0)
 	invulnerable_remaining = maxf(invulnerable_remaining - delta, 0.0)
 	combo_window_remaining = maxf(combo_window_remaining - delta, 0.0)
+	combo_window_2_remaining = maxf(combo_window_2_remaining - delta, 0.0)
 	if combo_window_remaining <= 0.0:
 		combo_count = 0
+	if combo_window_2_remaining <= 0.0:
+		combo_count_2 = 0
 
 
 func _start_dash(move_direction: Vector3) -> void:
@@ -164,9 +180,38 @@ func _start_dash(move_direction: Vector3) -> void:
 	_emit_dash_state()
 
 
-func _start_attack() -> void:
-	if attack_cooldown_remaining > 0.0:
+func _start_attack_with_slot(slot: int) -> void:
+	if not weapon_manager:
 		return
+	var weapon: WeaponData = weapon_manager.get_weapon_at_slot(slot)
+	if not weapon:
+		return  # O slot boş
+	
+	# Doğru cooldown'u kontrol et
+	if slot == 1:
+		if attack_cooldown_remaining > 0.0:
+			return
+		attack_cooldown_remaining = weapon.attack_cooldown
+		combo_count = (combo_count + 1) if combo_window_remaining > 0.0 else 1
+		if combo_count > 3:
+			combo_count = 1
+		combo_window_remaining = weapon.combo_window
+	else:
+		if attack_cooldown_2_remaining > 0.0:
+			return
+		attack_cooldown_2_remaining = weapon.attack_cooldown
+		combo_count_2 = (combo_count_2 + 1) if combo_window_2_remaining > 0.0 else 1
+		if combo_count_2 > 3:
+			combo_count_2 = 1
+		combo_window_2_remaining = weapon.combo_window
+	
+	current_attack_slot = slot
+	_swing_weapon_for_slot(slot, weapon)
+
+
+# Eski _start_attack'ı geriye uyumluluk için tut (combo gibi başka yerden çağrılıyor olabilir)
+func _start_attack() -> void:
+	_start_attack_with_slot(1)
 
 	var weapon := _get_current_weapon()
 	attack_cooldown_remaining = weapon.attack_cooldown if weapon else attack_cooldown
@@ -174,16 +219,16 @@ func _start_attack() -> void:
 	combo_count = (combo_count + 1) if combo_window_remaining > 0.0 else 1
 	if combo_count > 3:
 		combo_count = 1
-	combo_window_remaining = combo_window
+	combo_window_remaining = weapon.combo_window if weapon else combo_window
 
 	_swing_weapon()
 
 
-func _swing_weapon() -> void:
+func _swing_weapon_for_slot(slot: int, weapon: WeaponData) -> void:
 	hit_targets.clear()
 	attacking = true
-	var weapon := _get_current_weapon()
-	var is_combo_finisher := combo_count == 3
+	var combo := combo_count if slot == 1 else combo_count_2
+	var is_combo_finisher := combo == 3
 
 	_configure_attack_area(weapon)
 	attack_visual.visible = true
@@ -216,6 +261,13 @@ func _swing_weapon() -> void:
 	_finish_attack()
 
 
+# Eski _swing_weapon'u geriye uyumluluk için tut
+func _swing_weapon() -> void:
+	var weapon := _get_current_weapon()
+	if weapon:
+		_swing_weapon_for_slot(1, weapon)
+
+
 func _damage_overlapping_enemies() -> void:
 	for body in attack_area.get_overlapping_bodies():
 		_damage_enemy(body)
@@ -235,14 +287,15 @@ func _damage_enemy(body: Node) -> void:
 		return
 
 	hit_targets[body_id] = true
-	var weapon := _get_current_weapon()
-	var final_damage := weapon.damage if weapon else attack_damage
-	if combo_count == 3:
+	var weapon: WeaponData = weapon_manager.get_weapon_at_slot(current_attack_slot) if weapon_manager else null
+	var final_damage: int = weapon.damage if weapon else attack_damage
+	var combo: int = combo_count if current_attack_slot == 1 else combo_count_2
+	if combo == 3:
 		final_damage *= combo_3_damage_multiplier
 	body.call("take_damage", final_damage)
 	if weapon and body.has_method("apply_knockback"):
 		body.call("apply_knockback", global_position, weapon.knockback)
-	if combo_count == 3:
+	if combo == 3:
 		_hit_pause()
 
 
@@ -374,6 +427,8 @@ func _ensure_input_actions() -> void:
 	_add_key_action("dash", KEY_SPACE)
 	_add_key_action("attack", KEY_J)
 	_add_mouse_action("attack", MOUSE_BUTTON_LEFT)
+	_add_key_action("attack_secondary", KEY_K)
+	_add_mouse_action("attack_secondary", MOUSE_BUTTON_RIGHT)
 	for i in range(5):
 		_add_key_action(StringName("weapon_%d" % [i + 1]), KEY_1 + i)
 

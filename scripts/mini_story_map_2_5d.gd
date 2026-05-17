@@ -135,21 +135,110 @@ func collect_root_fragment(amount := 1) -> void:
 	show_message("Kök Parçası +%d" % amount, 1.5)
 
 
+const WEAPON_SWAP_POPUP_SCRIPT := preload("res://scripts/weapon_swap_popup.gd")
+
+var _active_swap_popup: CanvasLayer
+var _pending_swap_pickup: Node3D
+
 func collect_weapon(weapon_id: String) -> void:
 	if not player or not player.has_method("add_weapon_to_inventory"):
 		return
-
 	var weapon_name := weapon_id
 	if player.has_method("get_weapon_display_name"):
 		weapon_name = player.call("get_weapon_display_name", weapon_id)
-
-	var added: bool = player.call("add_weapon_to_inventory", weapon_id)
-	if added:
-		show_message("Silah bulundu: " + weapon_name, 2.2)
-	else:
+	
+	var manager = player.get("weapon_manager")
+	var inventory_full := false
+	var already_owned := false
+	if manager:
+		if manager.has_method("is_inventory_full"):
+			inventory_full = manager.call("is_inventory_full")
+		if "owned_weapons" in manager:
+			already_owned = manager.owned_weapons.has(weapon_id)
+	
+	# Popup zaten açıksa hiçbir şey yapma
+	if _active_swap_popup and is_instance_valid(_active_swap_popup):
+		return
+	
+	# Zaten sahip olunan silah
+	if already_owned:
 		root_fragments += 1
 		_update_root_fragment_ui()
 		show_message("Zaten vardı. Kök Parçası +1", 1.8)
+		return
+	
+	# Envanter dolu — popup aç
+	if inventory_full:
+		_open_weapon_swap_popup(weapon_id, weapon_name)
+		return
+	
+	# Normal ekleme
+	var added: bool = player.call("add_weapon_to_inventory", weapon_id)
+	if added:
+		show_message("Silah bulundu: " + weapon_name, 2.2)
+
+
+func _open_weapon_swap_popup(new_weapon_id: String, new_weapon_name: String) -> void:
+	var manager = player.get("weapon_manager")
+	if not manager:
+		return
+	
+	# Slot 1 ve 2'deki silahların adlarını al
+	var slot1: WeaponData = manager.get_weapon_at_slot(1)
+	var slot2: WeaponData = manager.get_weapon_at_slot(2)
+	if not slot1 or not slot2:
+		# İki silah olmadan popup gereksiz
+		return
+	
+	# Popup oluştur
+	var popup: CanvasLayer = WEAPON_SWAP_POPUP_SCRIPT.new()
+	get_tree().current_scene.add_child(popup)
+	popup.setup(new_weapon_id, new_weapon_name, slot1.display_name, slot2.display_name)
+	popup.slot_chosen.connect(_on_weapon_swap_chosen.bind(new_weapon_id))
+	popup.cancelled.connect(_on_weapon_swap_cancelled)
+	_active_swap_popup = popup
+	
+	# Oyunu duraklatma — popup üstünde olsa bile oyun devam etsin (sade tercih)
+	# Eğer pause istersen: get_tree().paused = true
+
+
+func _on_weapon_swap_chosen(slot: int, new_weapon_id: String) -> void:
+	_active_swap_popup = null
+	var manager = player.get("weapon_manager")
+	if not manager:
+		return
+	
+	# O slottaki silahı bırak
+	var dropped_id: String = manager.drop_weapon_at_slot(slot)
+	
+	# Bırakılan silahı oyuncunun ayakucuna pickup olarak düşür
+	if not dropped_id.is_empty():
+		var drop_position := player.global_position + Vector3(0.0, 0.0, 0.8)
+		_spawn_weapon_pickup(drop_position, dropped_id)
+	
+	# Yeni silahı zorla ekle
+	if manager.has_method("force_add_weapon"):
+		manager.force_add_weapon(new_weapon_id)
+	
+	var dropped_name := dropped_id
+	if player.has_method("get_weapon_display_name") and not dropped_id.is_empty():
+		dropped_name = player.call("get_weapon_display_name", dropped_id)
+	
+	var new_name := new_weapon_id
+	if player.has_method("get_weapon_display_name"):
+		new_name = player.call("get_weapon_display_name", new_weapon_id)
+	
+	show_message(dropped_name + " bırakıldı, " + new_name + " alındı.", 2.5)
+	
+	# Yerdeki orijinal pickup'ı sil
+	if _pending_swap_pickup and is_instance_valid(_pending_swap_pickup):
+		_pending_swap_pickup.queue_free()
+	_pending_swap_pickup = null
+	
+func _on_weapon_swap_cancelled() -> void:
+	_active_swap_popup = null
+	_pending_swap_pickup = null
+	show_message("İptal edildi.", 1.5)
 
 
 func enemy_died(enemy_type: String, drop_position: Vector3) -> void:
@@ -1048,6 +1137,7 @@ func _message_for_room(room: Dictionary) -> String:
 
 
 func _spawn_room_contents() -> void:
+	_spawn_test_weapons_in_start_room()
 	for room_id in room_order:
 		var room: Dictionary = rooms[room_id] as Dictionary
 		var room_type: String = room["type"]
@@ -1261,9 +1351,10 @@ func _add_shift_gate(gate_name: String, position: Vector3, size: Vector3, initia
 
 
 func _set_shift_gate_open(gate: Node3D, open: bool, instant := false) -> void:
-	var shape := gate.get_node_or_null("CollisionShape3D") as CollisionShape3D
-	if shape:
-		shape.disabled = open
+	# Gate'in altındaki TÜM CollisionShape3D'leri bul ve kapat
+	for child in gate.get_children():
+		if child is CollisionShape3D:
+			(child as CollisionShape3D).disabled = open
 	if open:
 		if instant:
 			gate.scale = Vector3(1.0, 0.08, 1.0)
@@ -1625,6 +1716,7 @@ func _add_box(parent: Node, node_name: String, position: Vector3, size: Vector3,
 		body.add_child(visual)
 		visual.position = Vector3.ZERO
 		var shape := CollisionShape3D.new()
+		shape.name = "CollisionShape3D"
 		var box_shape := BoxShape3D.new()
 		box_shape.size = size
 		shape.shape = box_shape
@@ -1714,3 +1806,19 @@ func _make_material(color: Color, emission := Color.BLACK, emission_energy := 0.
 		mat.emission = emission
 		mat.emission_energy_multiplier = emission_energy
 	return mat
+
+func _spawn_test_weapons_in_start_room() -> void:
+	# Wake odasını bul
+	for room_id in room_order:
+		var room: Dictionary = rooms[room_id] as Dictionary
+		if room.get("type") == "wake":
+			var center: Vector3 = _room_point(room, 0.0, 0.0, 0.0)
+			# 4 silahı oda etrafında dağıt (bıçak zaten envanterde başlangıçta)
+			_spawn_weapon_pickup(center + Vector3(-1.2, 0, 0), "mace")
+			_spawn_weapon_pickup(center + Vector3(1.2, 0, 0), "spear")
+			_spawn_weapon_pickup(center + Vector3(0, 0, -1.2), "ember_staff")
+			_spawn_weapon_pickup(center + Vector3(0, 0, 1.2), "mushroom_sling")
+			break
+			
+func set_pending_swap_pickup(pickup: Node3D) -> void:
+	_pending_swap_pickup = pickup
