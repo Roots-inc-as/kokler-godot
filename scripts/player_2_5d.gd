@@ -27,7 +27,6 @@ signal died
 @onready var attack_area: Area3D = $Model/AttackArea
 @onready var attack_shape: CollisionShape3D = $Model/AttackArea/CollisionShape3D
 @onready var attack_visual: MeshInstance3D = $Model/AttackArea/AttackVisual
-@onready var animation_player: AnimationPlayer = $Model/karakter/AnimationPlayer
 
 var current_hp := 0
 var last_direction := Vector3.BACK
@@ -50,7 +49,6 @@ var combo_count := 0
 var combo_window_remaining := 0.0
 var attacking := false
 var attack_visual_base_scale := Vector3.ONE
-var current_anim: String = ""
 var story_manager: Node
 var weapon_manager: WeaponManager25D
 var current_weapon: WeaponData
@@ -123,9 +121,6 @@ func _physics_process(delta: float) -> void:
 	velocity.y = 0.0
 	move_and_slide()
 	_lock_to_ground()
-	_update_animation()
-	
-	
 
 func get_health_state() -> Dictionary:
 	return {
@@ -505,21 +500,3 @@ func _toggle_inventory_screen() -> void:
 	screen.setup(weapon_manager)
 	screen.closed.connect(func(): _active_inventory_screen = null)
 	_active_inventory_screen = screen
-
-func _update_animation() -> void:
-	if not animation_player:
-		return
-	
-	var target_anim := ""
-	# Hareket hızına göre anim seç
-	var horizontal_speed := Vector2(velocity.x, velocity.z).length()
-	if horizontal_speed > 0.5:
-		target_anim = "walking"
-	else:
-		target_anim = "idle"
-	
-	# Animasyon zaten oynuyor mu kontrol et
-	if current_anim != target_anim:
-		current_anim = target_anim
-		if animation_player.has_animation(target_anim):
-			animation_player.play(target_anim)
