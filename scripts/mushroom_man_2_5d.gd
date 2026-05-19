@@ -28,6 +28,8 @@ enum State { IDLE, CHASE, LOST }
 var state: int = State.IDLE
 var last_known_player_pos := Vector3.ZERO
 var lost_timer := 0.0
+var knockback_velocity := Vector3.ZERO
+var knockback_remaining := 0.0
 var nav_agent: NavigationAgent3D
 var nav_update_timer := 0.0
 
@@ -82,6 +84,9 @@ func _physics_process(delta: float) -> void:
 	var distance := to_target.length()
 	var direction := to_target.normalized() if distance > 0.05 else Vector3.ZERO
 
+	# Knockback timer
+	if knockback_remaining > 0.0:
+		knockback_remaining = maxf(knockback_remaining - delta, 0.0)
 	# Duruma göre hareket
 	match state:
 		State.IDLE:
@@ -105,6 +110,10 @@ func _physics_process(delta: float) -> void:
 				velocity = _navigation_movement(last_known_player_pos) * move_speed * 0.7
 			else:
 				velocity = Vector3.ZERO
+	# Knockback aktifse normal hareketi geçersiz kıl
+	if knockback_remaining > 0.0:
+		velocity.x = knockback_velocity.x
+		velocity.z = knockback_velocity.z
 
 	move_and_slide()
 	global_position.y = ground_y
@@ -114,8 +123,8 @@ func _physics_process(delta: float) -> void:
 
 	_animate_body(delta)
 
-	# Pulse saldırısı sadece CHASE durumundayken
-	if state == State.CHASE:
+	# Pulse saldırısı sadece CHASE ve knockback yokken
+	if state == State.CHASE and knockback_remaining <= 0.0:
 		_pulse_timer -= delta
 		if _pulse_timer <= 0.0 and distance <= pulse_range:
 			_pulse_timer = pulse_cooldown
@@ -150,11 +159,11 @@ func take_damage(amount: int) -> void:
 
 
 func apply_knockback(from_position: Vector3, force: float) -> void:
-	var away := global_position - from_position
-	away.y = 0.0
-	if away.length_squared() > 0.001:
-		velocity += away.normalized() * force
-
+	var push_dir := global_position - from_position
+	push_dir.y = 0.0
+	if push_dir.length_squared() > 0.01:
+		knockback_velocity = push_dir.normalized() * force * 1.5
+		knockback_remaining = 0.15
 
 func _poison_pulse() -> void:
 	if _run_is_locked():

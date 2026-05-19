@@ -1164,49 +1164,6 @@ func _message_for_room(room: Dictionary) -> String:
 			return "Kök Tüneli yön değiştiriyor."
 
 
-func _spawn_room_contents() -> void:
-	if spawn_debug_start_weapons:
-		_spawn_test_weapons_in_start_room()
-	for room_id in room_order:
-		var room: Dictionary = rooms[room_id] as Dictionary
-		var room_type: String = room["type"]
-		match room_type:
-			"root_tunnel":
-				_spawn_enemy_in_room(room_id, BLIND_RAT_SCENE, -0.22, 0.12)
-				if randf() < 0.35:
-					_spawn_enemy_in_room(room_id, BLIND_RAT_SCENE, 0.25, -0.18)
-			"rat_nest":
-				var rat_count := randi_range(2, 4)
-				for i in range(rat_count):
-					var offset := _enemy_offset_for_index(i, rat_count)
-					_spawn_enemy_in_room(room_id, BLIND_RAT_SCENE, offset.x, offset.y)
-				if randf() < 0.45:
-					_spawn_root_fragment(_room_point(room, 0.28, 0.24, 0.35))
-			"mushroom_cellar":
-				_spawn_enemy_in_room(room_id, MUSHROOM_MAN_SCENE, -0.18, 0.12)
-				if randf() < 0.55:
-					_spawn_enemy_in_room(room_id, MUSHROOM_MAN_SCENE, 0.24, -0.18)
-			"stone_watch_room":
-				_spawn_enemy_in_room(room_id, STONE_GUARD_SCENE, 0.08, 0.06)
-				if randf() < 0.45:
-					_spawn_enemy_in_room(room_id, BLIND_RAT_SCENE, -0.28, -0.22)
-				if randf() < 0.32:
-					_spawn_weapon_pickup(_room_point(room, -0.28, 0.22, 0.45), _get_random_weapon_id())
-			"loot_niche":
-				_spawn_root_fragment(_room_point(room, -0.24, 0.2, 0.35))
-				if randf() < 0.45:
-					_spawn_weapon_pickup(_room_point(room, 0.18, -0.12, 0.45), _get_random_weapon_id())
-			"broken_shrine":
-				if randf() < 0.5:
-					_spawn_enemy_in_room(room_id, BLIND_RAT_SCENE, 0.28, 0.18)
-			"shifting_root_gate":
-				_spawn_root_fragment(_room_point(room, 0.34, 0.26, 0.35))
-				if randf() < 0.35:
-					_spawn_weapon_pickup(_room_point(room, 0.34, -0.26, 0.45), _get_random_weapon_id())
-			_:
-				pass
-
-
 func _enemy_offset_for_index(index: int, total: int) -> Vector2:
 	if total <= 1:
 		return Vector2.ZERO
@@ -2046,18 +2003,60 @@ func _make_material(color: Color, emission := Color.BLACK, emission_energy := 0.
 		mat.emission_energy_multiplier = emission_energy
 	return mat
 
+			
+func set_pending_swap_pickup(pickup: Node3D) -> void:
+	_pending_swap_pickup = pickup
+	
+	
+func _spawn_room_contents() -> void:
+	_spawn_test_weapons_in_start_room()
+	for room_id in room_order:
+		var room: Dictionary = rooms[room_id] as Dictionary
+		var room_type: String = room["type"]
+		match room_type:
+			"root_tunnel":
+				_spawn_enemy_in_room(room_id, BLIND_RAT_SCENE, -0.22, 0.12)
+				if randf() < 0.35:
+					_spawn_enemy_in_room(room_id, BLIND_RAT_SCENE, 0.25, -0.18)
+			"rat_nest":
+				var rat_count := randi_range(2, 4)
+				for i in range(rat_count):
+					var offset := _enemy_offset_for_index(i, rat_count)
+					_spawn_enemy_in_room(room_id, BLIND_RAT_SCENE, offset.x, offset.y)
+				if randf() < 0.45:
+					_spawn_root_fragment(_room_point(room, 0.28, 0.24, 0.35))
+			"mushroom_cellar":
+				_spawn_enemy_in_room(room_id, MUSHROOM_MAN_SCENE, -0.18, 0.12)
+				if randf() < 0.55:
+					_spawn_enemy_in_room(room_id, MUSHROOM_MAN_SCENE, 0.24, -0.18)
+			"stone_watch_room":
+				_spawn_enemy_in_room(room_id, STONE_GUARD_SCENE, 0.08, 0.06)
+				if randf() < 0.45:
+					_spawn_enemy_in_room(room_id, BLIND_RAT_SCENE, -0.28, -0.22)
+				if randf() < 0.32:
+					_spawn_weapon_pickup(_room_point(room, -0.28, 0.22, 0.45), _get_random_weapon_id())
+			"loot_niche":
+				_spawn_root_fragment(_room_point(room, -0.24, 0.2, 0.35))
+				if randf() < 0.45:
+					_spawn_weapon_pickup(_room_point(room, 0.18, -0.12, 0.45), _get_random_weapon_id())
+			"broken_shrine":
+				if randf() < 0.5:
+					_spawn_enemy_in_room(room_id, BLIND_RAT_SCENE, 0.28, 0.18)
+			"shifting_root_gate":
+				_spawn_root_fragment(_room_point(room, 0.34, 0.26, 0.35))
+				if randf() < 0.35:
+					_spawn_weapon_pickup(_room_point(room, 0.34, -0.26, 0.45), _get_random_weapon_id())
+			_:
+				pass
+
+
 func _spawn_test_weapons_in_start_room() -> void:
-	# Wake odasını bul
 	for room_id in room_order:
 		var room: Dictionary = rooms[room_id] as Dictionary
 		if room.get("type") == "wake":
 			var center: Vector3 = _room_point(room, 0.0, 0.0, 0.0)
-			# 4 silahı oda etrafında dağıt (bıçak zaten envanterde başlangıçta)
 			_spawn_weapon_pickup(center + Vector3(-1.2, 0, 0), "mace")
 			_spawn_weapon_pickup(center + Vector3(1.2, 0, 0), "spear")
 			_spawn_weapon_pickup(center + Vector3(0, 0, -1.2), "ember_staff")
 			_spawn_weapon_pickup(center + Vector3(0, 0, 1.2), "mushroom_sling")
 			break
-			
-func set_pending_swap_pickup(pickup: Node3D) -> void:
-	_pending_swap_pickup = pickup

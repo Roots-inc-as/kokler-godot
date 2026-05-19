@@ -76,7 +76,10 @@ func _physics_process(delta: float) -> void:
 		velocity.z = move_toward(velocity.z, desired_velocity.z, acceleration * delta)
 	velocity.y = 0.0
 
-	if Vector2(velocity.x, velocity.z).length_squared() > 0.01:
+	# Knockback sırasında dönme — yön sabit kalsın
+	if knockback_remaining > 0.0:
+		pass  # Knockback sırasında dönme yok
+	elif Vector2(velocity.x, velocity.z).length_squared() > 0.01:
 		model.rotation.y = atan2(velocity.x, velocity.z)
 	_animate_crawl(delta, Vector2(velocity.x, velocity.z).length())
 
@@ -104,7 +107,7 @@ func apply_knockback(from_position: Vector3, force: float) -> void:
 	var push_dir := global_position - from_position
 	push_dir.y = 0.0
 	if push_dir.length_squared() > 0.01:
-		knockback_velocity = push_dir.normalized() * force
+		knockback_velocity = push_dir.normalized() * force  * 1.5
 		knockback_remaining = 0.08
 
 

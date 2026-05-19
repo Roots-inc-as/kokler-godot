@@ -20,6 +20,10 @@ signal died
 @export var combo_slow_factor := 0.2
 @export var combo_3_damage_multiplier := 2
 @export var combo_3_visual_scale := 1.6
+# ─── Charged saldırı ayarları ───
+@export var charge_time := 0.7
+@export var charged_damage_multiplier := 2
+@export var charged_knockback_multiplier := 1.5
 @export var invulnerable_time := 0.45
 @export var ground_y := 0.0
 
@@ -49,9 +53,16 @@ var combo_count := 0
 var combo_window_remaining := 0.0
 var attacking := false
 var attack_visual_base_scale := Vector3.ONE
+# Charge durumu — her slot için ayrı
+var charging_slot: int = 0           # 0=hiçbiri, 1 veya 2
+var charge_elapsed: float = 0.0      # Geçen süre
+var charge_ready: bool = false       # Charge tamamlandı mı?
 var story_manager: Node
 var weapon_manager: WeaponManager25D
 var current_weapon: WeaponData
+var _is_charged_swing: bool = false
+var _pending_charged_damage: int = 0
+var _pending_charged_knockback: float = 0.0
 
 
 func _ready() -> void:
@@ -97,16 +108,26 @@ func _physics_process(delta: float) -> void:
 	
 	if Input.is_action_just_pressed("inventory"):
 		_toggle_inventory_screen()
+	# Sol tık (slot 1)
 	if Input.is_action_just_pressed("attack"):
-		_start_attack_with_slot(1)
+		_begin_charge(1)
+	if Input.is_action_just_released("attack"):
+		_release_charge(1)
+	
+	# Sağ tık (slot 2)
 	if Input.is_action_just_pressed("attack_secondary"):
-		_start_attack_with_slot(2)
+		_begin_charge(2)
+	if Input.is_action_just_released("attack_secondary"):
+		_release_charge(2)
+	
+	# Charge ilerleyişi
+	_tick_charge(delta)
 
 	if dash_time_remaining > 0.0:
 		dash_time_remaining = maxf(dash_time_remaining - delta, 0.0)
 		velocity = dash_direction * dash_speed
 	else:
-		if Input.is_action_just_pressed("dash") and dash_cooldown_remaining <= 0.0:
+		if Input.is_action_just_pressed("dash") and dash_cooldown_remaining <= 0.0 and charging_slot == 0:
 			_start_dash(move_direction)
 		if dash_time_remaining > 0.0:
 			velocity = dash_direction * dash_speed
@@ -114,6 +135,8 @@ func _physics_process(delta: float) -> void:
 			var current_speed := move_speed
 			if attacking:
 				current_speed *= combo_slow_factor
+			elif charging_slot != 0:
+				current_speed *= 0.5
 			var target_velocity := move_direction * current_speed
 			velocity.x = move_toward(velocity.x, target_velocity.x, acceleration * delta)
 			velocity.z = move_toward(velocity.z, target_velocity.z, acceleration * delta)
@@ -271,21 +294,30 @@ func _on_attack_area_body_entered(body: Node) -> void:
 func _damage_enemy(body: Node) -> void:
 	if body == self or not body.has_method("take_damage"):
 		return
-
 	var body_id := body.get_instance_id()
 	if hit_targets.has(body_id):
 		return
-
 	hit_targets[body_id] = true
+	
 	var weapon: WeaponData = weapon_manager.get_weapon_at_slot(current_attack_slot) if weapon_manager else null
 	var final_damage: int = weapon.damage if weapon else attack_damage
-	var combo: int = combo_count if current_attack_slot == 1 else combo_count_2
-	if combo == 3:
-		final_damage *= combo_3_damage_multiplier
+	var final_knockback: float = 0.0
+	
+	if _is_charged_swing:
+		final_damage = _pending_charged_damage
+		final_knockback = _pending_charged_knockback
+	else:
+		var combo: int = combo_count if current_attack_slot == 1 else combo_count_2
+		if combo == 3:
+			final_damage *= combo_3_damage_multiplier
+		if weapon and weapon.always_knockback:
+			final_knockback = weapon.knockback
+	
 	body.call("take_damage", final_damage)
-	if weapon and body.has_method("apply_knockback"):
-		body.call("apply_knockback", global_position, weapon.knockback)
-	if combo == 3:
+	if final_knockback > 0.0 and body.has_method("apply_knockback"):
+		body.call("apply_knockback", global_position, final_knockback)
+	
+	if _is_charged_swing or (current_attack_slot == 1 and combo_count == 3) or (current_attack_slot == 2 and combo_count_2 == 3):
 		_hit_pause()
 
 
@@ -500,3 +532,132 @@ func _toggle_inventory_screen() -> void:
 	screen.setup(weapon_manager)
 	screen.closed.connect(func(): _active_inventory_screen = null)
 	_active_inventory_screen = screen
+
+# ─── CHARGE SİSTEMİ ───
+
+func _begin_charge(slot: int) -> void:
+	# Henüz başka bir slot charge ediyorsa, başlama
+	if charging_slot != 0:
+		return
+	# Bu slot'ta silah yoksa, başlama
+	if not weapon_manager:
+		return
+	var weapon: WeaponData = weapon_manager.get_weapon_at_slot(slot)
+	if not weapon:
+		return
+	# Cooldown kontrolü
+	if slot == 1 and attack_cooldown_remaining > 0.0:
+		return
+	if slot == 2 and attack_cooldown_2_remaining > 0.0:
+		return
+	
+	charging_slot = slot
+	charge_elapsed = 0.0
+	charge_ready = false
+
+
+func _tick_charge(delta: float) -> void:
+	if charging_slot == 0:
+		return
+	
+	charge_elapsed += delta
+	
+	# Charge tamamlandı mı?
+	if not charge_ready and charge_elapsed >= charge_time:
+		charge_ready = true
+		_on_charge_full()
+
+
+func _release_charge(slot: int) -> void:
+	# Bu slot charge etmiyorsa, normal saldırı (combo) tetiklenir
+	if charging_slot != slot:
+		return
+	
+	var was_charged := charge_ready
+	var fired_slot := charging_slot
+	
+	# State temizle
+	charging_slot = 0
+	charge_elapsed = 0.0
+	charge_ready = false
+	_clear_charge_visual()
+	
+	# Charged ya da normal saldırı
+	if was_charged:
+		_perform_charged_attack(fired_slot)
+	else:
+		_start_attack_with_slot(fired_slot)
+
+
+func _on_charge_full() -> void:
+	# Charge dolduğunda görsel feedback
+	if attack_visual:
+		attack_visual.visible = true
+		attack_visual.scale = attack_visual_base_scale * 1.3
+		_set_attack_visual_color(Color(2.0, 1.8, 0.5))  # sarı parıltı
+
+
+func _clear_charge_visual() -> void:
+	if attack_visual and not attacking:
+		attack_visual.visible = false
+		attack_visual.scale = attack_visual_base_scale
+
+
+func _perform_charged_attack(slot: int) -> void:
+	if not weapon_manager:
+		return
+	var weapon: WeaponData = weapon_manager.get_weapon_at_slot(slot)
+	if not weapon:
+		return
+	
+	# Cooldown ayarla (normal saldırının iki katı)
+	if slot == 1:
+		attack_cooldown_remaining = weapon.attack_cooldown * 1.5
+	else:
+		attack_cooldown_2_remaining = weapon.attack_cooldown * 1.5
+	
+	# Comboyu sıfırla (charged bağımsız)
+	if slot == 1:
+		combo_count = 0
+		combo_window_remaining = 0.0
+	else:
+		combo_count_2 = 0
+		combo_window_2_remaining = 0.0
+	
+	current_attack_slot = slot
+	_swing_charged(slot, weapon)
+
+func _swing_charged(slot: int, weapon: WeaponData) -> void:
+	hit_targets.clear()
+	attacking = true
+	
+	_configure_attack_area(weapon)
+	attack_visual.visible = true
+	attack_visual.scale = attack_visual_base_scale * 1.8
+	_set_attack_visual_color(Color(1.5, 0.4, 0.4))
+	
+	if weapon and weapon.is_ranged:
+		attack_area.monitoring = false
+		attack_area.monitorable = false
+		attack_shape.disabled = true
+		_fire_projectile(weapon)
+		await get_tree().create_timer(attack_active_time).timeout
+		_finish_attack()
+		return
+	
+	attack_area.monitoring = true
+	attack_area.monitorable = true
+	attack_shape.disabled = false
+	
+	# Charged damage'i hazırla
+	_pending_charged_damage = weapon.damage * charged_damage_multiplier
+	_pending_charged_knockback = weapon.knockback * charged_knockback_multiplier
+	_is_charged_swing = true
+	
+	await get_tree().physics_frame
+	_damage_overlapping_enemies()  # mevcut fonksiyon kullanılacak
+	await get_tree().create_timer(attack_active_time).timeout
+	_finish_attack()
+	
+	_is_charged_swing = false
+	_hit_pause()

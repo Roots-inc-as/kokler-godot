@@ -13,6 +13,7 @@ class_name WeaponData
 @export var is_ranged: bool = false
 @export var projectile_scene: PackedScene
 @export var combo_window: float = 0.7
+@export var always_knockback: bool = false
 
 
 static func create(
@@ -27,7 +28,8 @@ static func create(
 	weapon_color: Color,
 	ranged := false,
 	projectile: PackedScene = null,
-	combo_win: float = 0.7
+	combo_win: float = 0.7,
+	always_kb: bool = false
 ) -> WeaponData:
 	var weapon := WeaponData.new()
 	weapon.id = weapon_id
@@ -42,4 +44,5 @@ static func create(
 	weapon.is_ranged = ranged
 	weapon.projectile_scene = projectile
 	weapon.combo_window = combo_win
+	weapon.always_knockback = always_kb
 	return weapon

@@ -18,11 +18,11 @@ func _ready() -> void:
 
 func setup_default_weapons() -> void:
 	weapons.clear()
-	_add_weapon_data(WeaponData.create("knife", "Haritacı Bıçağı", "melee", 1, 0.35, 1.25, 2.0, "slash", Color(0.95, 0.88, 0.68), false, null, 0.6))
-	_add_weapon_data(WeaponData.create("mace", "Taş Tokmak", "melee", 3, 0.80, 1.20, 5.0, "heavy", Color(0.58, 0.55, 0.50), false, null, 1.1))
-	_add_weapon_data(WeaponData.create("spear", "Kemik Mızrak", "melee", 2, 0.55, 1.85, 3.0, "thrust", Color(0.82, 0.78, 0.62), false, null, 0.85))
-	_add_weapon_data(WeaponData.create("ember_staff", "Kor Çubuğu", "melee", 1, 0.70, 1.55, 2.5, "ember", Color(0.95, 0.35, 0.12), false, null, 0.95))
-	_add_weapon_data(WeaponData.create("mushroom_sling", "Mantar Sapanı", "ranged", 1, 0.65, 5.5, 1.5, "sling", Color(0.78, 0.36, 0.45), true, PROJECTILE_SCENE, 1.0))
+	_add_weapon_data(WeaponData.create("knife", "Haritacı Bıçağı", "melee", 1, 0.35, 1.25, 2.0, "slash", Color(0.95, 0.88, 0.68), false, null, 0.9))
+	_add_weapon_data(WeaponData.create("mace", "Taş Tokmak", "melee", 3, 0.80, 1.20, 3.0, "heavy", Color(0.58, 0.55, 0.50), false, null, 1.4, true))
+	_add_weapon_data(WeaponData.create("spear", "Kemik Mızrak", "melee", 2, 0.55, 1.85, 3.0, "thrust", Color(0.82, 0.78, 0.62), false, null, 1.2))
+	_add_weapon_data(WeaponData.create("ember_staff", "Kor Çubuğu", "melee", 1, 0.70, 1.55, 2.5, "ember", Color(0.95, 0.35, 0.12), false, null, 1.3))
+	_add_weapon_data(WeaponData.create("mushroom_sling", "Mantar Sapanı", "ranged", 1, 0.65, 5.5, 1.5, "sling", Color(0.78, 0.36, 0.45), true, PROJECTILE_SCENE, 1.3))
 	if owned_weapons.is_empty():
 		add_weapon("knife")
 	current_index = clampi(current_index, 0, max(owned_weapons.size() - 1, 0))
