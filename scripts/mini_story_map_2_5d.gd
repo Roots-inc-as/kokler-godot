@@ -50,6 +50,12 @@ var dungeon_root: Node3D
 var has_key := false
 var root_fragments := 0
 var run_locked := false
+# ─── Katman sistemi ───
+var current_main_layer := 1            # Şu anki ana katman (1-4)
+var max_main_layers := 4               # Toplam ana katman
+var current_micro_floor := 1           # Mikro kat sayacı
+var total_micro_floors := 3            # Bu ana katmanın toplam mikro kat sayısı
+var key_floor := 1                     # Anahtar hangi mikro katta
 var puzzle_message_time_msec := -10000
 var current_room_id := ""
 var labyrinth_shift_count := 0
@@ -85,6 +91,7 @@ func _ready() -> void:
 		randomize()
 	_build_materials()
 	_connect_player()
+	_setup_new_main_layer()
 	_build_dungeon()
 	_update_key_ui()
 	_update_root_fragment_ui()
@@ -112,12 +119,42 @@ func has_player_key() -> bool:
 
 
 func try_exit() -> void:
-	if has_key:
+	# Son mikro katta anahtar gerekli
+	var is_last_floor := current_micro_floor >= total_micro_floors
+	
+	if is_last_floor and not has_key:
+		show_message("Anahtar olmadan Kökaltı seni bırakmaz.", 2.6)
+		return
+	
+	if is_last_floor:
+		# Son mikro kat geçildi — ana katmanı bitir
+		_finish_main_layer()
+	else:
+		# Mikro kata geç
+		_advance_micro_floor()
+
+
+func _finish_main_layer() -> void:
+	print("=== ANA KATMAN ", current_main_layer, " bitti")
+	
+	# 4 ana katman bitti mi?
+	if current_main_layer >= max_main_layers:
 		run_locked = true
 		if ui and ui.has_method("show_victory"):
 			ui.call("show_victory", "Şimdilik kaçtın. Ama Kökler seni hatırlıyor.")
-	else:
-		show_message("Anahtar olmadan Kökaltı seni bırakmaz.", 2.6)
+		return
+	
+	# Yeni ana katmana geç
+	current_main_layer += 1
+	show_message("Ana Katman %d" % current_main_layer, 2.0)
+	_setup_new_main_layer()
+	
+	run_locked = false
+	has_key = false
+	_update_key_ui()
+	
+	_clear_dungeon()
+	_build_dungeon()
 
 
 func show_message(text: String, duration := 3.0) -> void:
@@ -455,7 +492,9 @@ func _build_dungeon() -> void:
 
 	var key_room: Dictionary = rooms[key_room_id] as Dictionary
 	var exit_room: Dictionary = rooms[exit_room_id] as Dictionary
-	_add_key_pickup(_room_point(key_room, 0.0, 0.15, 0.45))
+	# Anahtar sadece key_floor numaralı mikro katta spawn olsun
+	if current_micro_floor == key_floor:
+		_add_key_pickup(_room_point(key_room, 0.0, 0.15, 0.45))
 	_add_exit_gate(_room_point(exit_room, 0.22, 0.0, 0.7))
 
 	if player:
@@ -468,7 +507,7 @@ func _build_dungeon() -> void:
 	if debug_print_generation:
 		print("KÖKLER v0.4 room graph: ", room_order.size(), " rooms | start=", start_room_id, " key=", key_room_id, " exit=", exit_room_id)
 
-	show_lore_message("KAT I — Kök Tüneli\nToprak nefes almıyor. Dinliyor.", 4.0)
+	show_lore_message("KAT %d-%d" % [current_main_layer, current_micro_floor], 2.5)
 
 
 func _generate_room_graph() -> void:
@@ -2060,3 +2099,33 @@ func _spawn_test_weapons_in_start_room() -> void:
 			_spawn_weapon_pickup(center + Vector3(0, 0, -1.2), "ember_staff")
 			_spawn_weapon_pickup(center + Vector3(0, 0, 1.2), "mushroom_sling")
 			break
+
+# ─── KATMAN SİSTEMİ ───
+
+func _setup_new_main_layer() -> void:
+	# Bu ana katmanın mikro kat sayısı (3-6 arası rastgele)
+	total_micro_floors = randi_range(5, 6)
+	# Anahtar hangi mikro kata düşecek (sondan önceki katlardan birinde)
+	key_floor = randi_range(1, total_micro_floors - 1)
+	current_micro_floor = 1
+	print("=== ANA KATMAN ", current_main_layer, " başladı. ", total_micro_floors, " mikro kat. Anahtar: kat ", key_floor)
+
+
+func _advance_micro_floor() -> void:
+	current_micro_floor += 1
+	print("=== MİKRO KAT ", current_micro_floor, "/", total_micro_floors, " başlıyor")
+	
+	# Run lock'u kaldır (dungeon yeniden kurulacak)
+	run_locked = false
+	has_key = false
+	_update_key_ui()
+	
+	# Dungeon'u yeniden kur
+	_clear_dungeon()
+	_build_dungeon()
+
+
+func _clear_dungeon() -> void:
+	# dungeon_root'u temizle, yeniden kurulsun
+	if dungeon_root and is_instance_valid(dungeon_root):
+		dungeon_root.queue_free()
