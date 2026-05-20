@@ -2097,6 +2097,9 @@ func _spawn_room_contents() -> void:
 
 
 func _spawn_test_weapons_in_start_room() -> void:
+	# Sadece ilk ana katmanın ilk mikro katında test silahları
+	if current_main_layer != 1 or current_micro_floor != 1:
+		return
 	for room_id in room_order:
 		var room: Dictionary = rooms[room_id] as Dictionary
 		if room.get("type") == "wake":
