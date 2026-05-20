@@ -56,6 +56,9 @@ var max_main_layers := 4               # Toplam ana katman
 var current_micro_floor := 1           # Mikro kat sayacı
 var total_micro_floors := 3            # Bu ana katmanın toplam mikro kat sayısı
 var key_floor := 1                     # Anahtar hangi mikro katta
+# ─── Mikro kat state ───
+var micro_floor_seeds: Dictionary = {}    # micro_floor_number → seed
+var micro_floor_state: Dictionary = {}    # micro_floor_number → {"collected": [...], "dead_enemies": [...]}
 var puzzle_message_time_msec := -10000
 var current_room_id := ""
 var labyrinth_shift_count := 0
@@ -471,6 +474,10 @@ func _connection_pairs() -> Array:
 
 
 func _build_dungeon() -> void:
+	# Mikro kat seed'ini uygula
+	if micro_floor_seeds.has(current_micro_floor):
+		seed(micro_floor_seeds[current_micro_floor])
+	
 	dungeon_root = Node3D.new()
 	dungeon_root.name = "KokTuneliDungeon"
 	add_child(dungeon_root)
@@ -2103,11 +2110,15 @@ func _spawn_test_weapons_in_start_room() -> void:
 # ─── KATMAN SİSTEMİ ───
 
 func _setup_new_main_layer() -> void:
-	# Bu ana katmanın mikro kat sayısı (3-6 arası rastgele)
 	total_micro_floors = randi_range(5, 6)
-	# Anahtar hangi mikro kata düşecek (sondan önceki katlardan birinde)
 	key_floor = randi_range(1, total_micro_floors - 1)
 	current_micro_floor = 1
+	# Her mikro kat için unique seed üret
+	micro_floor_seeds.clear()
+	micro_floor_state.clear()
+	for i in range(1, total_micro_floors + 1):
+		micro_floor_seeds[i] = randi()
+		micro_floor_state[i] = {"collected": [], "dead_enemies": []}
 	print("=== ANA KATMAN ", current_main_layer, " başladı. ", total_micro_floors, " mikro kat. Anahtar: kat ", key_floor)
 
 
