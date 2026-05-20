@@ -7,6 +7,7 @@ const ROOT_FRAGMENT_SCENE := preload("res://scenes/root_fragment_pickup_2_5d.tsc
 const WEAPON_PICKUP_SCENE := preload("res://scenes/weapon_pickup_2_5d.tscn")
 const KEY_PICKUP_SCRIPT := preload("res://scripts/key_pickup_2_5d.gd")
 const EXIT_GATE_SCRIPT := preload("res://scripts/exit_gate_2_5d.gd")
+const BACK_STAIR_SCRIPT := preload("res://scripts/back_stair_2_5d.gd")
 const LORE_TRIGGER_SCRIPT := preload("res://scripts/lore_trigger_3d.gd")
 
 const GRID_SIZE := 10
@@ -59,6 +60,7 @@ var key_floor := 1                     # Anahtar hangi mikro katta
 # ─── Mikro kat state ───
 var micro_floor_seeds: Dictionary = {}    # micro_floor_number → seed
 var micro_floor_state: Dictionary = {}    # micro_floor_number → {"collected": [...], "dead_enemies": [...]}
+var _spawn_at_exit_room := false
 var puzzle_message_time_msec := -10000
 var current_room_id := ""
 var labyrinth_shift_count := 0
@@ -247,6 +249,7 @@ func _open_weapon_swap_popup(new_weapon_id: String, new_weapon_name: String) -> 
 	popup.connect("slot_chosen", Callable(self, "_on_weapon_swap_chosen").bind(new_weapon_id))
 	popup.connect("cancelled", Callable(self, "_on_weapon_swap_cancelled"))
 	_active_swap_popup = popup
+	get_tree().paused = true
 	
 	# Oyunu duraklatma — popup üstünde olsa bile oyun devam etsin (sade tercih)
 	# Eğer pause istersen: get_tree().paused = true
@@ -254,6 +257,7 @@ func _open_weapon_swap_popup(new_weapon_id: String, new_weapon_name: String) -> 
 
 func _on_weapon_swap_chosen(slot: int, new_weapon_id: String) -> void:
 	_active_swap_popup = null
+	get_tree().paused = false
 	var manager := _get_player_weapon_manager()
 	if not manager:
 		return
@@ -286,6 +290,7 @@ func _on_weapon_swap_chosen(slot: int, new_weapon_id: String) -> void:
 	
 func _on_weapon_swap_cancelled() -> void:
 	_active_swap_popup = null
+	get_tree().paused = false
 	_pending_swap_pickup = null
 	show_message("İptal edildi.", 1.5)
 
@@ -503,10 +508,19 @@ func _build_dungeon() -> void:
 	if current_micro_floor == key_floor:
 		_add_key_pickup(_room_point(key_room, 0.0, 0.15, 0.45))
 	_add_exit_gate(_room_point(exit_room, 0.22, 0.0, 0.7))
+	# İlk kat değilsek, start odasına bir üst kata çıkış merdiveni koy
+	if current_micro_floor > 1:
+		var start_room_for_stair: Dictionary = rooms[start_room_id] as Dictionary
+		_add_back_stair(_room_point(start_room_for_stair, 0.0, 0.34, 0.7))
 
 	if player:
-		var start_room: Dictionary = rooms[start_room_id] as Dictionary
-		player.global_position = _room_point(start_room, 0.0, 0.0, 0.0)
+		if _spawn_at_exit_room:
+			# Geri çıkış: bir alt kattan çıktık, exit odasında belir
+			player.global_position = _room_point(exit_room, 0.22, 0.0, 0.0)
+			_spawn_at_exit_room = false
+		else:
+			var start_room: Dictionary = rooms[start_room_id] as Dictionary
+			player.global_position = _room_point(start_room, 0.0, 0.0, 0.0)
 
 	_setup_minimap()
 	_discover_room(start_room_id)
@@ -1193,7 +1207,9 @@ func _message_for_room(room: Dictionary) -> String:
 		"sealed_white_door":
 			return "Bazı kapılar açılmaz. Seni bekler."
 		"key_alcove":
-			return "Kökler burada bir anahtarı saklamış."
+			if _key_alcove_is_active():
+				return "Kökler burada bir anahtarı saklamış."
+			return "Kör şeyler bile burada yolu biliyor."
 		"forgotten_exit":
 			return "Toprak burada ince. Kaçış yakında."
 		"rat_nest":
@@ -1450,6 +1466,28 @@ func _add_key_pickup(position: Vector3) -> void:
 	_add_box(visual, "Tooth", Vector3(0.15, 0.0, 0.52), Vector3(0.22, 0.08, 0.08), _mat("key"))
 
 
+func _add_back_stair(position: Vector3) -> void:
+	var area := Area3D.new()
+	area.name = "BackStair25D"
+	area.collision_layer = 16
+	area.collision_mask = 2
+	area.set_script(BACK_STAIR_SCRIPT)
+	dungeon_root.add_child(area)
+	area.global_position = Vector3(position.x, 0.6, position.z)
+
+	var shape := CollisionShape3D.new()
+	var box_shape := BoxShape3D.new()
+	box_shape.size = Vector3(2.4, 1.7, 1.0)
+	shape.shape = box_shape
+	area.add_child(shape)
+
+	for i in range(4):
+		_add_box(area, "back_step", Vector3(0.0, -0.25 + float(i) * 0.22, -0.3 + float(i) * 0.22), Vector3(1.7, 0.16, 0.34), _mat("stone"))
+	_add_box(area, "back_arch_left", Vector3(-0.9, 0.3, 0.0), Vector3(0.34, 1.7, 0.42), _mat("stone"))
+	_add_box(area, "back_arch_right", Vector3(0.9, 0.3, 0.0), Vector3(0.34, 1.7, 0.42), _mat("stone"))
+	_add_box(area, "back_glow", Vector3(0.0, 0.55, 0.18), Vector3(1.2, 0.9, 0.06), _mat("exit_glow"))
+
+
 func _add_exit_gate(position: Vector3) -> void:
 	var area := Area3D.new()
 	area.name = "ForgottenExitGate25D"
@@ -1593,14 +1631,18 @@ func _decorate_loot_niche(room: Dictionary) -> void:
 	_create_soft_blocking_prop(dungeon_root, "loot_crate_b", _room_point(room, 0.28, 0.2, 0.18), Vector3(0.56, 0.36, 0.48), _mat("crate"))
 	_create_soft_blocking_cylinder_prop(dungeon_root, "stone_bowl", _room_point(room, 0.0, -0.2, 0.18), 0.32, 0.18, _mat("stone"))
 	_add_root_cluster(_room_point(room, 0.36, -0.28, 0.04), 3)
-
+	
+func _key_alcove_is_active() -> bool:
+	return current_micro_floor == key_floor
 
 func _decorate_key_alcove(room: Dictionary) -> void:
 	_add_root_cluster(_room_point(room, -0.32, -0.18, 0.04), 6)
 	_add_root_cluster(_room_point(room, 0.32, -0.18, 0.04), 6)
 	_add_box(dungeon_root, "key_plinth", _room_point(room, 0.0, 0.18, 0.18), Vector3(1.35, 0.36, 1.0), _mat("stone"))
 	_create_blocking_prop(dungeon_root, "key_back_marker", _room_point(room, 0.0, -0.34, 0.62), Vector3(1.2, 1.25, 0.18), _mat("white_stone"))
-
+	if not _key_alcove_is_active():
+		_decorate_root_tunnel(room)
+		return
 
 func _decorate_sealed_door(room: Dictionary) -> void:
 	_add_lost_neighborhood_hint(_room_point(room, -0.28, 0.18, 0.0))
@@ -2135,6 +2177,22 @@ func _advance_micro_floor() -> void:
 	_update_key_ui()
 	
 	# Dungeon'u yeniden kur
+	_clear_dungeon()
+	_build_dungeon()
+	
+	
+func go_back_micro_floor() -> void:
+	if current_micro_floor <= 1:
+		return
+	current_micro_floor -= 1
+	print("=== MİKRO KAT ", current_micro_floor, "/", total_micro_floors, " (geri çıkıldı)")
+
+	run_locked = false
+	has_key = false
+	_update_key_ui()
+
+	_spawn_at_exit_room = true
+
 	_clear_dungeon()
 	_build_dungeon()
 

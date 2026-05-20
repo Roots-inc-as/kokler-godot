@@ -184,12 +184,12 @@ func _on_close_pressed() -> void:
 
 
 func _input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed:
-		# ESC kapat
-		if event.keycode == KEY_ESCAPE:
-			_on_close_pressed()
-			get_viewport().set_input_as_handled()
-		# R ile slot yer değiştir
-		elif event.keycode == KEY_R:
-			_on_swap_pressed()
-			get_viewport().set_input_as_handled()
+	# I (inventory action) veya ESC ile kapat
+	if event.is_action_pressed("inventory") or (event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE):
+		_on_close_pressed()
+		get_viewport().set_input_as_handled()
+		return
+	# R ile slot yer değiştir
+	if event is InputEventKey and event.pressed and event.keycode == KEY_R:
+		_on_swap_pressed()
+		get_viewport().set_input_as_handled()

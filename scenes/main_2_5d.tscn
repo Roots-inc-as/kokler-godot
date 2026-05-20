@@ -26,6 +26,24 @@ light_energy = 1.05
 shadow_enabled = true
 
 [node name="Asha" parent="." unique_id=526930997 instance=ExtResource("2_player")]
+max_hp = null
+move_speed = null
+acceleration = null
+dash_speed = null
+dash_duration = null
+dash_cooldown = null
+attack_damage = null
+attack_cooldown = null
+attack_active_time = null
+combo_window = null
+combo_slow_factor = null
+combo_3_damage_multiplier = null
+combo_3_visual_scale = null
+charge_time = null
+charged_damage_multiplier = null
+charged_knockback_multiplier = null
+invulnerable_time = null
+ground_y = null
 
 [node name="CameraRig3D" type="Node3D" parent="." unique_id=505694154]
 script = ExtResource("3_camera")

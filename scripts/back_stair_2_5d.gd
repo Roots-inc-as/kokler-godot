@@ -1,6 +1,5 @@
 extends Area3D
 
-var triggered := false
 var _armed := false
 
 
@@ -16,13 +15,12 @@ func _ready() -> void:
 
 
 func _on_body_entered(body: Node) -> void:
-	if triggered or not _armed or not body.is_in_group("player_2_5d"):
+	if not _armed or not body.is_in_group("player_2_5d"):
 		return
 	var story_manager := get_tree().get_first_node_in_group("mini_story_manager_2_5d")
-	if story_manager and story_manager.has_method("try_exit"):
-		story_manager.try_exit()
-		if story_manager.has_method("has_player_key") and story_manager.has_player_key():
-			triggered = true
+	if story_manager and story_manager.has_method("go_back_micro_floor"):
+		_armed = false
+		story_manager.go_back_micro_floor()
 
 
 func _on_body_exited(body: Node) -> void:

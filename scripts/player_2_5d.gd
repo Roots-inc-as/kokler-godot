@@ -107,7 +107,15 @@ func _physics_process(delta: float) -> void:
 	_handle_weapon_switch_input()
 	
 	if Input.is_action_just_pressed("inventory"):
-		_toggle_inventory_screen()
+		if not (_active_inventory_screen and is_instance_valid(_active_inventory_screen)) and not _ignore_inventory_key:
+			_toggle_inventory_screen()
+	# Kapatmadan sonra aynı basışı yuttuk; bayrağı her durumda temizle
+	_ignore_inventory_key = false
+	# ESC ile pause menü (envanter açıkken karışmasın)
+	if Input.is_action_just_pressed("ui_cancel"):
+		if not (_active_inventory_screen and is_instance_valid(_active_inventory_screen)) and not _ignore_pause_key:
+			_toggle_pause_menu()
+	_ignore_pause_key = false
 	# Sol tık (slot 1)
 	if Input.is_action_just_pressed("attack"):
 		_begin_charge(1)
@@ -519,19 +527,60 @@ func _hit_pause(duration: float = 0.06, scale: float = 0.05) -> void:
 const INVENTORY_SCREEN_SCRIPT := preload("res://scripts/inventory_screen.gd")
 
 var _active_inventory_screen: CanvasLayer
+var _ignore_inventory_key := false
 
 func _toggle_inventory_screen() -> void:
 	# Zaten açıksa kapat
 	if _active_inventory_screen and is_instance_valid(_active_inventory_screen):
 		_active_inventory_screen.queue_free()
 		_active_inventory_screen = null
+		get_tree().paused = false
 		return
 	# Aç
 	var screen: CanvasLayer = INVENTORY_SCREEN_SCRIPT.new()
 	get_tree().current_scene.add_child(screen)
 	screen.setup(weapon_manager)
-	screen.closed.connect(func(): _active_inventory_screen = null)
+	screen.closed.connect(_on_inventory_screen_closed)
 	_active_inventory_screen = screen
+	get_tree().paused = true
+
+
+func _on_inventory_screen_closed() -> void:
+	_active_inventory_screen = null
+	get_tree().paused = false
+	_ignore_inventory_key = true
+	
+	# ─── PAUSE MENÜ ───
+
+const PAUSE_MENU_SCRIPT := preload("res://scripts/pause_menu_screen.gd")
+
+var _active_pause_menu: CanvasLayer
+var _ignore_pause_key := false
+
+func _toggle_pause_menu() -> void:
+	if _active_pause_menu and is_instance_valid(_active_pause_menu):
+		_active_pause_menu.queue_free()
+		_active_pause_menu = null
+		get_tree().paused = false
+		return
+	var menu: CanvasLayer = PAUSE_MENU_SCRIPT.new()
+	get_tree().current_scene.add_child(menu)
+	menu.resumed.connect(_on_pause_menu_resumed)
+	menu.restart_requested.connect(_on_pause_menu_restart)
+	_active_pause_menu = menu
+	get_tree().paused = true
+
+
+func _on_pause_menu_resumed() -> void:
+	_active_pause_menu = null
+	get_tree().paused = false
+	_ignore_pause_key = true
+
+
+func _on_pause_menu_restart() -> void:
+	_active_pause_menu = null
+	get_tree().paused = false
+	get_tree().reload_current_scene()
 
 # ─── CHARGE SİSTEMİ ───
 
