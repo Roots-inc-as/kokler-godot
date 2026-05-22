@@ -61,6 +61,8 @@ var key_floor := 1                     # Anahtar hangi mikro katta
 var micro_floor_seeds: Dictionary = {}    # micro_floor_number → seed
 var micro_floor_state: Dictionary = {}    # micro_floor_number → {"collected": [...], "dead_enemies": [...]}
 var _spawn_at_exit_room := false
+var _boss_required := false
+var _boss_defeated := false
 var puzzle_message_time_msec := -10000
 var current_room_id := ""
 var labyrinth_shift_count := 0
@@ -129,6 +131,10 @@ func try_exit() -> void:
 	
 	if is_last_floor and not has_key:
 		show_message("Anahtar olmadan Kökaltı seni bırakmaz.", 2.6)
+		return
+	
+	if is_last_floor and _boss_required and not _boss_defeated:
+		show_message("Yaşlı şey yolu tutuyor. Önce onu geç.", 2.4)
 		return
 	
 	if is_last_floor:
@@ -507,12 +513,16 @@ func _build_dungeon() -> void:
 	# Anahtar sadece key_floor numaralı mikro katta spawn olsun
 	if current_micro_floor == key_floor:
 		_add_key_pickup(_room_point(key_room, 0.0, 0.15, 0.45))
-	_add_exit_gate(_room_point(exit_room, 0.22, 0.0, 0.7))
+	var is_final_floor := current_micro_floor >= total_micro_floors
+	_add_exit_gate(_room_point(exit_room, 0.22, 0.0, 0.7), is_final_floor)
 	# İlk kat değilsek, start odasına bir üst kata çıkış merdiveni koy
 	if current_micro_floor > 1:
 		var start_room_for_stair: Dictionary = rooms[start_room_id] as Dictionary
-		_add_back_stair(_room_point(start_room_for_stair, 0.0, 0.34, 0.7))
-
+		# Merdiveni kapının (komşu yönünün) tam tersine koy
+		var stair_dir := _opposite_door_ratio(start_room_id)
+		var stair_yaw := atan2(stair_dir.x, stair_dir.y)
+		
+		_add_back_stair(_room_point(start_room_for_stair, stair_dir.x, stair_dir.y, 0.7), stair_yaw)
 	if player:
 		if _spawn_at_exit_room:
 			# Geri çıkış: bir alt kattan çıktık, exit odasında belir
@@ -521,6 +531,12 @@ func _build_dungeon() -> void:
 		else:
 			var start_room: Dictionary = rooms[start_room_id] as Dictionary
 			player.global_position = _room_point(start_room, 0.0, 0.0, 0.0)
+
+# Son mikro kat: exit odasında boss; yenilene kadar çıkış kilitli
+		_boss_required = current_micro_floor >= total_micro_floors
+		_boss_defeated = false
+		if _boss_required:
+			_spawn_boss(exit_room)
 
 	_setup_minimap()
 	_discover_room(start_room_id)
@@ -1464,9 +1480,27 @@ func _add_key_pickup(position: Vector3) -> void:
 	_add_cylinder(visual, "Ring", Vector3.ZERO, 0.2, 0.08, _mat("key"), false, Vector3(PI * 0.5, 0.0, 0.0))
 	_add_box(visual, "Stem", Vector3(0.0, 0.0, 0.32), Vector3(0.08, 0.08, 0.5), _mat("key"))
 	_add_box(visual, "Tooth", Vector3(0.15, 0.0, 0.52), Vector3(0.22, 0.08, 0.08), _mat("key"))
+	
+	
+func _opposite_door_ratio(room_id: String) -> Vector2:
+	if not rooms.has(room_id):
+		return Vector2(0.0, 0.34)
+	var room: Dictionary = rooms[room_id] as Dictionary
+	var cell: Vector2i = room["cell"]
+	var neighbor_ids := _neighbor_room_ids_for(room_id)
+	var dir := Vector2.ZERO
+	for nid in neighbor_ids:
+		if not rooms.has(nid):
+			continue
+		var ncell: Vector2i = (rooms[nid] as Dictionary)["cell"]
+		dir += Vector2(float(ncell.x - cell.x), float(ncell.y - cell.y))
+	if dir == Vector2.ZERO:
+		return Vector2(0.0, 0.34)
+	var opposite := -dir.normalized()
+	return opposite * 0.34
 
 
-func _add_back_stair(position: Vector3) -> void:
+func _add_back_stair(position: Vector3, yaw := 0.0) -> void:
 	var area := Area3D.new()
 	area.name = "BackStair25D"
 	area.collision_layer = 16
@@ -1474,6 +1508,7 @@ func _add_back_stair(position: Vector3) -> void:
 	area.set_script(BACK_STAIR_SCRIPT)
 	dungeon_root.add_child(area)
 	area.global_position = Vector3(position.x, 0.6, position.z)
+	area.rotation.y = yaw
 
 	var shape := CollisionShape3D.new()
 	var box_shape := BoxShape3D.new()
@@ -1488,7 +1523,7 @@ func _add_back_stair(position: Vector3) -> void:
 	_add_box(area, "back_glow", Vector3(0.0, 0.55, 0.18), Vector3(1.2, 0.9, 0.06), _mat("exit_glow"))
 
 
-func _add_exit_gate(position: Vector3) -> void:
+func _add_exit_gate(position: Vector3, is_portal := false) -> void:
 	var area := Area3D.new()
 	area.name = "ForgottenExitGate25D"
 	area.collision_layer = 16
@@ -1503,10 +1538,21 @@ func _add_exit_gate(position: Vector3) -> void:
 	shape.shape = box_shape
 	area.add_child(shape)
 
-	_add_box(area, "LeftPillar", Vector3(-1.0, 0.15, 0.0), Vector3(0.42, 2.0, 0.5), _mat("white_stone"))
-	_add_box(area, "RightPillar", Vector3(1.0, 0.15, 0.0), Vector3(0.42, 2.0, 0.5), _mat("white_stone"))
-	_add_box(area, "Lintel", Vector3(0.0, 1.08, 0.0), Vector3(2.35, 0.32, 0.48), _mat("white_stone"))
-	_add_box(area, "Glow", Vector3(0.0, 0.22, 0.04), Vector3(1.45, 1.32, 0.08), _mat("exit_glow"))
+	if is_portal:
+		# Son mikro kat: ana katmandan çıkış portalı (parlak turkuaz)
+		_add_box(area, "PortalLeft", Vector3(-0.95, 0.15, 0.0), Vector3(0.34, 2.1, 0.4), _mat("stone"))
+		_add_box(area, "PortalRight", Vector3(0.95, 0.15, 0.0), Vector3(0.34, 2.1, 0.4), _mat("stone"))
+		_add_box(area, "PortalTop", Vector3(0.0, 1.18, 0.0), Vector3(2.1, 0.34, 0.4), _mat("stone"))
+		_add_box(area, "PortalVeil", Vector3(0.0, 0.15, 0.02), Vector3(1.55, 1.95, 0.1), _mat("lumen_glow"))
+		_add_box(area, "PortalCore", Vector3(0.0, 0.15, 0.06), Vector3(0.9, 1.4, 0.08), _mat("exit_glow"))
+	else:
+		# Normal mikro kat: bir alt kata iniş merdiveni
+		for i in range(4):
+			_add_box(area, "down_step", Vector3(0.0, 0.35 - float(i) * 0.24, -0.3 + float(i) * 0.26), Vector3(1.8, 0.16, 0.36), _mat("stone"))
+		_add_box(area, "down_arch_left", Vector3(-0.95, 0.2, -0.35), Vector3(0.34, 1.7, 0.42), _mat("white_stone"))
+		_add_box(area, "down_arch_right", Vector3(0.95, 0.2, -0.35), Vector3(0.34, 1.7, 0.42), _mat("white_stone"))
+		_add_box(area, "down_lintel", Vector3(0.0, 1.0, -0.35), Vector3(2.3, 0.3, 0.46), _mat("white_stone"))
+		_add_box(area, "down_glow", Vector3(0.0, 0.05, 0.2), Vector3(1.3, 0.6, 0.06), _mat("exit_glow"))
 
 
 func _add_lore_trigger(message: String, position: Vector3, size: Vector3, duration := 3.5, room_id := "") -> void:
@@ -2167,6 +2213,46 @@ func _setup_new_main_layer() -> void:
 	print("=== ANA KATMAN ", current_main_layer, " başladı. ", total_micro_floors, " mikro kat. Anahtar: kat ", key_floor)
 
 
+func _spawn_boss(exit_room: Dictionary) -> void:
+	var boss_scene: PackedScene = MUSHROOM_MAN_SCENE
+	if current_main_layer >= 3:
+		boss_scene = STONE_GUARD_SCENE
+
+	var boss := _spawn_enemy_in_room(exit_room_id, boss_scene, -0.22, 0.0)
+	if boss == null:
+		_boss_required = false
+		return
+
+	if "max_hp" in boss:
+		boss.max_hp = int(boss.max_hp) * 4
+		boss.hp = boss.max_hp
+		var hb = boss.get("_health_bar")
+		if hb:
+			hb.set_health(boss.hp, boss.max_hp)
+			hb.width = 2.0
+	if "damage" in boss:
+		boss.damage = int(boss.damage) + 1
+	if "move_speed" in boss:
+		boss.move_speed = float(boss.move_speed) * 0.85
+
+	var model_node := boss.get_node_or_null("Model")
+	if model_node:
+		model_node.scale *= 1.8
+
+	boss.add_to_group("boss_2_5d")
+	boss.set_meta("is_boss", true)
+	boss.tree_exited.connect(_on_boss_defeated)
+
+	show_message("Bir şey burada bekliyor. Büyük. Yaşlı.", 2.6)
+
+
+func _on_boss_defeated() -> void:
+	if _boss_defeated:
+		return
+	_boss_defeated = true
+	show_message("Yaşlı şey sustu. Yol açıldı.", 2.4)
+
+
 func _advance_micro_floor() -> void:
 	current_micro_floor += 1
 	print("=== MİKRO KAT ", current_micro_floor, "/", total_micro_floors, " başlıyor")
@@ -2193,6 +2279,18 @@ func go_back_micro_floor() -> void:
 
 	_spawn_at_exit_room = true
 
+	_clear_dungeon()
+	_build_dungeon()
+
+
+# TEST: Doğrudan son (boss) mikro katına ışınlan. Anahtarı da verir.
+func debug_jump_to_boss() -> void:
+	current_micro_floor = total_micro_floors
+	print("=== TEST: Boss katına ışınlandı (kat ", current_micro_floor, ")")
+	run_locked = false
+	has_key = true
+	_update_key_ui()
+	_spawn_at_exit_room = false
 	_clear_dungeon()
 	_build_dungeon()
 

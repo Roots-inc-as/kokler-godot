@@ -116,6 +116,13 @@ func _physics_process(delta: float) -> void:
 		if not (_active_inventory_screen and is_instance_valid(_active_inventory_screen)) and not _ignore_pause_key:
 			_toggle_pause_menu()
 	_ignore_pause_key = false
+	# TEST: B tuşu → doğrudan boss (son) mikro katına ışınlan
+	if Input.is_physical_key_pressed(KEY_B) and not _debug_boss_key_held:
+		_debug_boss_key_held = true
+		if story_manager and story_manager.has_method("debug_jump_to_boss"):
+			story_manager.call("debug_jump_to_boss")
+	elif not Input.is_physical_key_pressed(KEY_B):
+		_debug_boss_key_held = false
 	# Sol tık (slot 1)
 	if Input.is_action_just_pressed("attack"):
 		_begin_charge(1)
@@ -556,6 +563,7 @@ const PAUSE_MENU_SCRIPT := preload("res://scripts/pause_menu_screen.gd")
 
 var _active_pause_menu: CanvasLayer
 var _ignore_pause_key := false
+var _debug_boss_key_held := false
 
 func _toggle_pause_menu() -> void:
 	if _active_pause_menu and is_instance_valid(_active_pause_menu):
@@ -575,6 +583,7 @@ func _on_pause_menu_resumed() -> void:
 	_active_pause_menu = null
 	get_tree().paused = false
 	_ignore_pause_key = true
+	
 
 
 func _on_pause_menu_restart() -> void:
