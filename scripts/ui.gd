@@ -20,7 +20,6 @@ var message_token := 0
 func _ready() -> void:
 	add_to_group("ui_2_5d")
 	_ensure_minimap()
-	set_hp(5, 5)
 	set_key_status(false)
 	set_dash_ready(true, 0.0)
 	set_weapon("Haritacı Bıçağı", "1 Haritacı Bıçağı")

@@ -2234,6 +2234,8 @@ func _spawn_boss(exit_room: Dictionary) -> void:
 		boss.damage = int(boss.damage) + 1
 	if "move_speed" in boss:
 		boss.move_speed = float(boss.move_speed) * 0.85
+	if "damage" in boss:
+		boss.damage = int(boss.damage) + 1
 
 	var model_node := boss.get_node_or_null("Model")
 	if model_node:
@@ -2241,6 +2243,8 @@ func _spawn_boss(exit_room: Dictionary) -> void:
 
 	boss.add_to_group("boss_2_5d")
 	boss.set_meta("is_boss", true)
+	if boss.has_method("refresh_base_scale"):
+		boss.call("refresh_base_scale")
 	boss.tree_exited.connect(_on_boss_defeated)
 
 	show_message("Bir şey burada bekliyor. Büyük. Yaşlı.", 2.6)
@@ -2289,8 +2293,8 @@ func debug_jump_to_boss() -> void:
 	print("=== TEST: Boss katına ışınlandı (kat ", current_micro_floor, ")")
 	run_locked = false
 	has_key = true
+	_spawn_at_exit_room = true   # boss'u görmek için exit odasında doğ
 	_update_key_ui()
-	_spawn_at_exit_room = false
 	_clear_dungeon()
 	_build_dungeon()
 

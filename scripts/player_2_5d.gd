@@ -7,12 +7,12 @@ signal dash_cooldown_changed(is_ready: bool, remaining: float)
 signal weapon_changed(display_name: String, slots_text: String)
 signal died
 
-@export var max_hp := 5
-@export var move_speed := 4.2
+@export var max_hp := 15
+@export var move_speed := 4.5
 @export var acceleration := 22.0
 @export var dash_speed := 11.5
 @export var dash_duration := 0.14
-@export var dash_cooldown := 0.8
+@export var dash_cooldown := 1.2
 @export var attack_damage := 1
 @export var attack_cooldown := 0.35
 @export var attack_active_time := 0.12
@@ -80,7 +80,7 @@ func _ready() -> void:
 	attack_area.body_entered.connect(_on_attack_area_body_entered)
 
 	call_deferred("_sync_story_manager")
-	health_changed.emit(current_hp, max_hp)
+	call_deferred("_emit_health_state")
 	dash_cooldown_changed.emit(true, 0.0)
 	call_deferred("_emit_weapon_state")
 
@@ -363,6 +363,8 @@ func _on_weapon_manager_changed(weapon: WeaponData, _owned_weapons: Array[String
 	current_weapon = weapon
 	_emit_weapon_state()
 
+func _emit_health_state() -> void:
+	health_changed.emit(current_hp, max_hp)
 
 func _emit_weapon_state() -> void:
 	var weapon := _get_current_weapon()
