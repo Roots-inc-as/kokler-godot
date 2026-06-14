@@ -10,6 +10,7 @@ const KEY_PICKUP_SCRIPT := preload("res://scripts/key_pickup_2_5d.gd")
 const EXIT_GATE_SCRIPT := preload("res://scripts/exit_gate_2_5d.gd")
 const BACK_STAIR_SCRIPT := preload("res://scripts/back_stair_2_5d.gd")
 const LORE_TRIGGER_SCRIPT := preload("res://scripts/lore_trigger_3d.gd")
+const DEATH_SCREEN_SCRIPT := preload("res://scripts/death_screen.gd")
 
 const GRID_SIZE := 10
 const CELL_SPACING := 23.0
@@ -75,6 +76,7 @@ var micro_floor_state: Dictionary = {}    # micro_floor_number → {"collected":
 var _spawn_at_exit_room := false
 var _boss_required := false
 var _boss_defeated := false
+var _active_death_screen: CanvasLayer
 var puzzle_message_time_msec := -10000
 var current_room_id := ""
 var labyrinth_shift_count := 0
@@ -108,6 +110,7 @@ var exit_room_id := ""
 
 func _ready() -> void:
 	add_to_group("mini_story_manager_2_5d")
+	get_tree().paused = false
 	Engine.time_scale = 1.0
 	dried_roots = dried_roots_bank
 	_apply_startup_presentation()
@@ -488,21 +491,69 @@ func enemy_died(enemy_type: String, drop_position: Vector3, enemy: Node = null) 
 
 
 func player_died() -> void:
-	if run_locked or death_reload_pending:
+	if run_locked:
 		return
-	# Death must never quit the app. Lock input, show feedback, then defer a
-	# scene change back to the active 2.5D main scene.
-	death_reload_pending = true
 	run_locked = true
-	Engine.time_scale = 1.0
+	var death_lines := [
+		"Kökler unutmaz. Adını da, düşüşünü de saklarlar.",
+		"Kökaltı bir nefes daha içti. Asha'nın nefesini.",
+		"Yukarıda kimse senin indiğini bilmiyordu. Şimdi kimse çıkmadığını da bilmeyecek.",
+		"Toprak sabırlıdır; bekler, sarar, ve sahiplenir.",
+		"Asha düştü. Kökler kıpırdandı, sanki tanıdık bir şeye dokunmuş gibi.",
+		"Her ölüm bir tohumdur, demişti yaşlılar. Kökaltı bu tohumları toplar.",
+		"Karanlık seni tanıdı. Bir dahaki sefere daha hızlı tanıyacak.",
+		"Burada zaman yoktur, yalnızca derinlik. Ve sen yeterince derine indin.",
+		"Kökler arasında bir ışık daha söndü. Kökaltı hiç bu kadar aydınlık olmamıştı.",
+		"Annen seni buraya göndermedi. Kökaltı seni çağırdı. Ve çağırmaya devam edecek.",
+	]
+	var lore: String = death_lines[randi() % death_lines.size()]
+	_show_death_screen(lore)
+
+
+func _show_death_screen(lore: String) -> void:
+	var screen: CanvasLayer = DEATH_SCREEN_SCRIPT.new()
+	if screen.has_method("setup"):
+		screen.call("setup", lore)
+	screen.restart_requested.connect(_on_death_restart)
+	get_tree().current_scene.add_child(screen)
+	_active_death_screen = screen
+	get_tree().paused = true
+
+
+func _on_death_restart() -> void:
+	print("[DEATH] Yeniden basla tetiklendi")
+	if _active_death_screen and is_instance_valid(_active_death_screen):
+		_active_death_screen.queue_free()
+		_active_death_screen = null
 	get_tree().paused = false
-	var converted_roots := convert_root_fragments_on_death()
-	if ui and ui.has_method("show_death"):
-		var death_text := "Kökaltı seni geri itti."
-		if converted_roots > 0:
-			death_text += "\nKurutulmuş Kök +%d" % converted_roots
-		ui.call("show_death", death_text)
-	call_deferred("_reload_run_after_death")
+	Engine.time_scale = 1.0
+	_rebuild_scene.call_deferred()
+
+
+func _rebuild_scene() -> void:
+	print("[DEATH] sahne elle yeniden kuruluyor")
+	var tree := get_tree()
+	var scene_res: PackedScene = load("res://scenes/main_2_5d.tscn")
+	if scene_res == null:
+		print("[DEATH] HATA: main_2_5d.tscn yuklenemedi")
+		return
+	var root := tree.root
+	var old_scene := tree.current_scene
+	# Eski sahneyi önce ağaçtan çıkar ki yeni oyuncu eski (kilitli) manager'a bağlanmasın
+	if old_scene and is_instance_valid(old_scene):
+		tree.current_scene = null
+		root.remove_child(old_scene)
+		old_scene.queue_free()
+	var new_scene := scene_res.instantiate()
+	root.add_child(new_scene)
+	tree.current_scene = new_scene
+	print("[DEATH] yeni sahne eklendi")
+
+
+func _do_restart() -> void:
+	print("[DEATH] change_scene cagriliyor")
+	var err := get_tree().change_scene_to_file("res://scenes/main_2_5d.tscn")
+	print("[DEATH] change_scene sonuc kodu: ", err)
 
 
 func _reload_run_after_death() -> void:
