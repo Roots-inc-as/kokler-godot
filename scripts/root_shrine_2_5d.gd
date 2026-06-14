@@ -11,10 +11,12 @@ var _prompt_token := 0
 
 @onready var visual: Node3D = get_node_or_null("Visual") as Node3D
 @onready var glow: MeshInstance3D = get_node_or_null("Visual/Glow") as MeshInstance3D
+@onready var name_label: Label3D = get_node_or_null("UseLabel") as Label3D
 
 
 func _ready() -> void:
 	_ensure_interact_action()
+	_ensure_name_label()
 	body_entered.connect(_on_body_entered)
 	body_exited.connect(_on_body_exited)
 	if manager == null:
@@ -65,7 +67,22 @@ func _show_prompt() -> void:
 	var label := option_id
 	if manager.has_method("get_root_shrine_option_label"):
 		label = String(manager.call("get_root_shrine_option_label", option_id))
-	manager.call("show_message", "E: Kök Sunağı - " + label, 2.0)
+	manager.call("show_message", "E: Kök Sunağı | " + label, 2.2)
+
+
+func _ensure_name_label() -> void:
+	if name_label:
+		return
+	name_label = Label3D.new()
+	name_label.name = "UseLabel"
+	name_label.text = "Kök Sunağı\nE ile kullan"
+	name_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	name_label.pixel_size = 0.018
+	name_label.modulate = Color(0.95, 0.74, 0.36, 1.0)
+	name_label.outline_size = 6
+	name_label.outline_modulate = Color(0.05, 0.025, 0.01, 0.9)
+	add_child(name_label)
+	name_label.position = Vector3(0.0, 1.45, 0.0)
 
 
 func _ensure_interact_action() -> void:

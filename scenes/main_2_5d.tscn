@@ -10,7 +10,7 @@ background_mode = 1
 background_color = Color(0.018, 0.014, 0.011, 1)
 ambient_light_source = 3
 ambient_light_color = Color(0.28, 0.22, 0.16, 1)
-ambient_light_energy = 0.58
+ambient_light_energy = 0.62
 
 [node name="Main25D" type="Node3D" unique_id=1515532389]
 script = ExtResource("1_story")
@@ -22,8 +22,14 @@ environment = SubResource("Environment_25d")
 [node name="MoonlessDirectionalLight" type="DirectionalLight3D" parent="." unique_id=1795676592]
 transform = Transform3D(0.8525245, -0.42516193, 0.30403835, 0, 0.5816831, 0.8134155, -0.52268726, -0.6934567, 0.4958991, 0, 0, 0)
 light_color = Color(1, 0.86, 0.66, 1)
-light_energy = 1.05
+light_energy = 1.16
 shadow_enabled = true
+
+[node name="KokTuneliDepthFill" type="OmniLight3D" parent="." unique_id=3027413070]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 7.5, 0)
+light_color = Color(0.58, 0.44, 0.28, 1)
+light_energy = 0.22
+omni_range = 34.0
 
 [node name="Asha" parent="." unique_id=526930997 instance=ExtResource("2_player")]
 

@@ -25,6 +25,8 @@ const ROOM_STATE_DISCOVERED := "discovered"
 const ROOM_STATE_ACTIVE_COMBAT := "active_combat"
 const ROOM_STATE_CLEARED := "cleared"
 const ROOM_STATE_SHIFTED := "shifted"
+const MAIN_SCENE_PATH := "res://scenes/main_2_5d.tscn"
+const NORMAL_ROOM_GATE_CLOSE_CHANCE := 0.20
 
 static var dried_roots_bank := 0
 
@@ -76,8 +78,11 @@ var _boss_defeated := false
 var puzzle_message_time_msec := -10000
 var current_room_id := ""
 var labyrinth_shift_count := 0
+var entropy_value := 0.0
+var entropy_message_time_msec := -10000
 var puzzle_shift_done := false
 var key_shift_done := false
+var death_reload_pending := false
 
 var rooms: Dictionary = {}
 var room_order: Array[String] = []
@@ -274,14 +279,14 @@ func _use_root_shrine_heal() -> bool:
 		show_message("Asha'nın yarası yok.", 1.6)
 		return false
 	if not spend_root_fragments(3):
-		show_message("Yeterli Kök Parçası yok.", 1.8)
+		show_message("Yeterli Kök Parçası yok. Gerekli: 3", 1.8)
 		return false
 	var healed: int = int(player.call("heal", 25))
 	if healed <= 0:
 		add_root_fragments(3, false)
 		show_message("Kökler yaranı bulamadı.", 1.8)
 		return false
-	show_message("Kökler yaranı sardı.", 2.0)
+	show_message("Kökler yaranı sardı. (-3 Kök Parçası)", 2.0)
 	return true
 
 
@@ -294,10 +299,10 @@ func _use_root_shrine_reveal() -> bool:
 		show_message("Harita henüz bu fısıltıyı taşıyamıyor.", 2.0)
 		return false
 	if not spend_root_fragments(4):
-		show_message("Yeterli Kök Parçası yok.", 1.8)
+		show_message("Yeterli Kök Parçası yok. Gerekli: 4", 1.8)
 		return false
 	ui.call("reveal_minimap_rooms", reveal_ids)
-	show_message("Kökler çevredeki yolları fısıldadı.", 2.1)
+	show_message("Kökler çevredeki yolları fısıldadı. (-4 Kök Parçası)", 2.1)
 	return true
 
 
@@ -306,10 +311,10 @@ func _use_root_shrine_empower() -> bool:
 		show_message("Silah bu kökü kabul etmedi.", 1.8)
 		return false
 	if not spend_root_fragments(5):
-		show_message("Yeterli Kök Parçası yok.", 1.8)
+		show_message("Yeterli Kök Parçası yok. Gerekli: 5", 1.8)
 		return false
 	player.call("add_run_damage_bonus", 1)
-	show_message("Kökler silahına işledi.", 2.0)
+	show_message("Kökler silahına işledi. (-5 Kök Parçası)", 2.0)
 	return true
 
 
@@ -483,17 +488,33 @@ func enemy_died(enemy_type: String, drop_position: Vector3, enemy: Node = null) 
 
 
 func player_died() -> void:
-	if run_locked:
+	if run_locked or death_reload_pending:
 		return
+	# Death must never quit the app. Lock input, show feedback, then defer a
+	# scene change back to the active 2.5D main scene.
+	death_reload_pending = true
 	run_locked = true
+	Engine.time_scale = 1.0
+	get_tree().paused = false
 	var converted_roots := convert_root_fragments_on_death()
 	if ui and ui.has_method("show_death"):
-		var death_text := "Asha Kökaltı'nda kayboldu. Koşu yeniden başlıyor..."
+		var death_text := "Kökaltı seni geri itti."
 		if converted_roots > 0:
 			death_text += "\nKurutulmuş Kök +%d" % converted_roots
 		ui.call("show_death", death_text)
-	await get_tree().create_timer(restart_delay).timeout
-	get_tree().reload_current_scene()
+	call_deferred("_reload_run_after_death")
+
+
+func _reload_run_after_death() -> void:
+	await get_tree().create_timer(restart_delay, true, false, true).timeout
+	if not is_inside_tree():
+		return
+	Engine.time_scale = 1.0
+	get_tree().paused = false
+	if not ResourceLoader.exists(MAIN_SCENE_PATH):
+		push_error("Death reload target missing: " + MAIN_SCENE_PATH)
+		return
+	get_tree().call_deferred("change_scene_to_file", MAIN_SCENE_PATH)
 
 
 func is_run_locked() -> bool:
@@ -581,6 +602,56 @@ func _room_state(room_id: String) -> String:
 	return String(room_states.get(room_id, ROOM_STATE_UNKNOWN))
 
 
+func get_entropy() -> float:
+	return entropy_value
+
+
+func add_entropy(amount: float, show_feedback: bool = true) -> float:
+	if amount <= 0.0:
+		return entropy_value
+	entropy_value = clampf(entropy_value + amount, 0.0, 8.0)
+	if show_feedback:
+		_maybe_show_entropy_message()
+	return entropy_value
+
+
+func reduce_entropy(amount: float) -> float:
+	if amount <= 0.0:
+		return entropy_value
+	entropy_value = maxf(entropy_value - amount, 0.0)
+	return entropy_value
+
+
+func play_entropy_pulse(position: Vector3 = Vector3.ZERO) -> void:
+	var pulse_position: Vector3 = position
+	if pulse_position == Vector3.ZERO and player:
+		pulse_position = player.global_position + Vector3(0.0, 1.6, 0.0)
+	if pulse_position == Vector3.ZERO or dungeon_root == null:
+		return
+	var light: OmniLight3D = OmniLight3D.new()
+	light.name = "EntropyPulseLight"
+	light.light_color = Color(0.9, 0.38, 0.12, 1.0)
+	light.light_energy = 0.35 + minf(entropy_value * 0.08, 0.45)
+	light.omni_range = 4.5 + minf(entropy_value * 0.4, 2.5)
+	dungeon_root.add_child(light)
+	light.global_position = pulse_position
+	var tween: Tween = create_tween()
+	tween.tween_property(light, "light_energy", 0.0, 0.42)
+	tween.tween_callback(func() -> void:
+		if is_instance_valid(light):
+			light.queue_free()
+	)
+
+
+func _maybe_show_entropy_message() -> void:
+	var now := Time.get_ticks_msec()
+	if now - entropy_message_time_msec < 4500:
+		return
+	entropy_message_time_msec = now
+	var line: String = "Kökler gerildi." if randf() < 0.5 else "Kökaltı seni duydu."
+	show_message(line, 1.35)
+
+
 func _set_room_state(room_id: String, state: String) -> void:
 	if room_id.is_empty() or not rooms.has(room_id):
 		return
@@ -639,7 +710,14 @@ func _room_should_lock_on_entry(room_id: String) -> bool:
 
 func _start_room_combat(room_id: String) -> void:
 	_set_room_state(room_id, ROOM_STATE_ACTIVE_COMBAT)
-	_set_room_gates_open(room_id, false)
+	var close_gates := _should_close_gates_for_room(room_id)
+	_set_room_gates_closed_flag(room_id, close_gates)
+	if close_gates:
+		add_entropy(1.0)
+		_set_room_gates_open(room_id, false)
+		show_message("Kökler kapandı.", 1.25)
+	else:
+		_set_room_gates_open(room_id, true, true)
 	_set_objective("Odayı temizle")
 
 
@@ -649,28 +727,68 @@ func _clear_room(room_id: String) -> void:
 	if _room_state(room_id) == ROOM_STATE_CLEARED:
 		return
 	_set_room_state(room_id, ROOM_STATE_CLEARED)
-	_set_room_gates_open(room_id, true)
+	reduce_entropy(1.0)
+	if _room_gates_are_closed(room_id):
+		_set_room_gates_open(room_id, true)
+		_set_room_gates_closed_flag(room_id, false)
 	show_message("Oda sustu.", 1.4)
 	_spawn_room_clear_reward(room_id)
 	_refresh_objective()
 
 
-func _set_room_gates_open(room_id: String, open: bool) -> void:
+func _set_room_gates_open(room_id: String, open: bool, instant := false) -> void:
 	if not room_combat_gates.has(room_id):
 		return
+	if not open and rooms.has(room_id):
+		var room: Dictionary = rooms[room_id] as Dictionary
+		play_entropy_pulse(_room_point(room, 0.0, 0.0, 1.6))
 	var gates: Array = room_combat_gates[room_id] as Array
 	for gate_variant in gates:
 		var gate := gate_variant as Node3D
 		if gate and is_instance_valid(gate):
-			_set_shift_gate_open(gate, open)
+			_set_shift_gate_open(gate, open, instant)
 
 
 func _setup_room_states_and_combat_gates() -> void:
 	room_combat_gates.clear()
 	for room_id in room_order:
 		_set_room_state(room_id, ROOM_STATE_UNKNOWN)
+		_set_room_gates_closed_flag(room_id, false)
 		if _room_should_lock_on_entry(room_id):
 			_create_combat_gates_for_room(room_id)
+
+
+func _should_close_gates_for_room(room_id: String) -> bool:
+	if not room_combat_gates.has(room_id):
+		return false
+	if _room_forces_gate_close(room_id):
+		return true
+	return randf() < NORMAL_ROOM_GATE_CLOSE_CHANCE
+
+
+func _room_forces_gate_close(room_id: String) -> bool:
+	if not rooms.has(room_id):
+		return false
+	var room: Dictionary = rooms[room_id] as Dictionary
+	var room_type: String = String(room.get("type", ""))
+	var forced_gate_value: Variant = room.get("force_gate_close", false)
+	return room_type == "boss" or bool(forced_gate_value)
+
+
+func _set_room_gates_closed_flag(room_id: String, closed: bool) -> void:
+	if not rooms.has(room_id):
+		return
+	var room: Dictionary = rooms[room_id] as Dictionary
+	room["gates_closed"] = closed
+	rooms[room_id] = room
+
+
+func _room_gates_are_closed(room_id: String) -> bool:
+	if not rooms.has(room_id):
+		return false
+	var room: Dictionary = rooms[room_id] as Dictionary
+	var closed_value: Variant = room.get("gates_closed", false)
+	return bool(closed_value)
 
 
 func _create_combat_gates_for_room(room_id: String) -> void:
@@ -707,13 +825,13 @@ func _spawn_room_clear_reward(room_id: String) -> void:
 func _room_clear_reward_chances(room_type: String) -> Dictionary:
 	match room_type:
 		"rat_nest":
-			return {"root": 0.60, "weapon": 0.08, "shrine": 0.05}
+			return {"root": 0.60, "weapon": 0.08, "shrine": 0.10}
 		"mushroom_cellar":
-			return {"root": 0.50, "weapon": 0.12, "shrine": 0.10}
+			return {"root": 0.50, "weapon": 0.12, "shrine": 0.15}
 		"stone_watch_room":
-			return {"root": 0.50, "weapon": 0.18, "shrine": 0.08}
+			return {"root": 0.50, "weapon": 0.18, "shrine": 0.15}
 		_:
-			return {"root": 0.45, "weapon": 0.10, "shrine": 0.08}
+			return {"root": 0.45, "weapon": 0.10, "shrine": 0.15}
 
 
 func _mark_minimap_uncertain(room_ids: Array) -> void:
@@ -804,6 +922,7 @@ func _build_dungeon() -> void:
 	_add_room_details()
 	_add_room_entry_triggers()
 	_spawn_room_contents()
+	_spawn_guaranteed_root_shrine()
 	_setup_room_states_and_combat_gates()
 
 	var key_room: Dictionary = rooms[key_room_id] as Dictionary
@@ -1592,6 +1711,7 @@ func _show_puzzle_message() -> void:
 
 func _trigger_labyrinth_shift(anchor_room_id: String, add_temporary_gate := false, message := "Kökaltı yer değiştirdi.") -> void:
 	labyrinth_shift_count += 1
+	add_entropy(2.0, false)
 	var affected := _shift_affected_rooms(anchor_room_id)
 	for room_id in affected:
 		if rooms.has(room_id) and _room_state(room_id) != ROOM_STATE_CLEARED:
@@ -1699,6 +1819,27 @@ func _spawn_root_shrine(position: Vector3) -> void:
 	shrine.global_position = shrine_position
 
 
+func _spawn_guaranteed_root_shrine() -> void:
+	var shrine_room_id := _first_room_id_of_type("fathers_map_room")
+	if shrine_room_id.is_empty():
+		shrine_room_id = start_room_id
+	if shrine_room_id.is_empty() or not rooms.has(shrine_room_id):
+		return
+	var room: Dictionary = rooms[shrine_room_id] as Dictionary
+	var shrine_position := _room_point(room, 0.32, -0.28, 0.0)
+	_spawn_root_shrine(shrine_position)
+
+
+func _first_room_id_of_type(room_type: String) -> String:
+	for room_id in room_order:
+		if not rooms.has(room_id):
+			continue
+		var room: Dictionary = rooms[room_id] as Dictionary
+		if String(room.get("type", "")) == room_type:
+			return room_id
+	return ""
+
+
 func _spawn_weapon_pickup(position: Vector3, weapon_id: String) -> void:
 	if WEAPON_PICKUP_SCENE == null:
 		return
@@ -1754,26 +1895,46 @@ func _add_shift_gate(gate_name: String, position: Vector3, size: Vector3, initia
 
 
 func _set_shift_gate_open(gate: Node3D, open: bool, instant := false) -> void:
-	_set_collision_shapes_disabled(gate, open)
+	if gate == null or not is_instance_valid(gate):
+		return
+	var token: int = int(gate.get_meta("gate_anim_token", 0)) + 1
+	gate.set_meta("gate_anim_token", token)
 	if open:
+		_set_collision_shapes_disabled(gate, true)
 		if instant:
 			gate.scale = Vector3(1.0, 0.08, 1.0)
 			gate.visible = false
 			return
-		var tween := create_tween()
-		tween.tween_property(gate, "scale", Vector3(1.0, 0.08, 1.0), 0.22)
+		gate.visible = true
+		var tween: Tween = create_tween()
+		tween.tween_property(gate, "scale", Vector3(1.0, 0.08, 1.0), _gate_animation_duration(true))
 		tween.tween_callback(func() -> void:
-			if is_instance_valid(gate):
+			if is_instance_valid(gate) and int(gate.get_meta("gate_anim_token", 0)) == token:
 				gate.visible = false
+				_set_collision_shapes_disabled(gate, true)
 		)
 	else:
 		gate.visible = true
+		_set_collision_shapes_disabled(gate, true)
 		if instant:
 			gate.scale = Vector3.ONE
+			_set_collision_shapes_disabled(gate, false)
 			return
 		gate.scale = Vector3(1.0, 0.08, 1.0)
-		var tween := create_tween()
-		tween.tween_property(gate, "scale", Vector3.ONE, 0.22)
+		var closed_scale: Vector3 = Vector3(1.0, 1.0 + minf(entropy_value * 0.025, 0.14), 1.0)
+		var tween: Tween = create_tween()
+		tween.tween_property(gate, "scale", closed_scale, _gate_animation_duration(false)).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		tween.tween_callback(func() -> void:
+			if is_instance_valid(gate) and int(gate.get_meta("gate_anim_token", 0)) == token:
+				_set_collision_shapes_disabled(gate, false)
+		)
+
+
+func _gate_animation_duration(open: bool) -> float:
+	var pressure: float = minf(entropy_value * 0.014, 0.1)
+	if open:
+		return maxf(0.14, 0.24 - pressure * 0.45)
+	return maxf(0.16, 0.32 - pressure)
 
 
 func _set_collision_shapes_disabled(node: Node, disabled: bool) -> void:
