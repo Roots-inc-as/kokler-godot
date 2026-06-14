@@ -60,6 +60,7 @@ var charge_ready: bool = false       # Charge tamamlandı mı?
 var story_manager: Node
 var weapon_manager: WeaponManager25D
 var current_weapon: WeaponData
+var run_damage_bonus := 0
 var _is_charged_swing: bool = false
 var _pending_charged_damage: int = 0
 var _pending_charged_knockback: float = 0.0
@@ -180,6 +181,21 @@ func take_damage(amount: int) -> void:
 		died.emit()
 		if story_manager and story_manager.has_method("player_died"):
 			story_manager.call("player_died")
+
+
+func heal(amount: int) -> int:
+	if current_hp <= 0:
+		return 0
+	var before := current_hp
+	current_hp = mini(max_hp, current_hp + maxi(amount, 0))
+	if current_hp != before:
+		health_changed.emit(current_hp, max_hp)
+	return current_hp - before
+
+
+func add_run_damage_bonus(amount: int) -> int:
+	run_damage_bonus += maxi(amount, 0)
+	return run_damage_bonus
 
 
 func add_weapon_to_inventory(weapon_id: String) -> bool:
@@ -327,6 +343,7 @@ func _damage_enemy(body: Node) -> void:
 			final_damage *= combo_3_damage_multiplier
 		if weapon and weapon.always_knockback:
 			final_knockback = weapon.knockback
+	final_damage += run_damage_bonus
 	
 	body.call("take_damage", final_damage)
 	if final_knockback > 0.0 and body.has_method("apply_knockback"):

@@ -8,6 +8,7 @@ const MINIMAP_SCRIPT := preload("res://scripts/minimap_2_5d.gd")
 @onready var weapon_label: Label = get_node_or_null("WeaponLabel") as Label
 @onready var root_fragment_label: Label = get_node_or_null("RootFragmentLabel") as Label
 @onready var weapon_slots_label: Label = get_node_or_null("WeaponSlotsLabel") as Label
+@onready var objective_label: Label = get_node_or_null("ObjectiveLabel") as Label
 @onready var minimap: Control = get_node_or_null("Minimap") as Control
 @onready var message_label: Label = $MessageLabel
 @onready var victory_panel: ColorRect = $VictoryPanel
@@ -19,11 +20,13 @@ var message_token := 0
 
 func _ready() -> void:
 	add_to_group("ui_2_5d")
+	_ensure_objective_label()
 	_ensure_minimap()
 	set_key_status(false)
 	set_dash_ready(true, 0.0)
 	set_weapon("Haritacı Bıçağı", "1 Haritacı Bıçağı")
 	set_root_fragments(0)
+	set_objective_text("Anahtarı bul")
 	message_label.visible = false
 	victory_panel.visible = false
 
@@ -52,6 +55,12 @@ func set_root_fragments(count: int) -> void:
 		root_fragment_label.text = "Kök Parçası: %d" % count
 
 
+func set_objective_text(text: String) -> void:
+	_ensure_objective_label()
+	if objective_label:
+		objective_label.text = "Amaç: " + text
+
+
 func setup_minimap(map_data: Dictionary) -> void:
 	_ensure_minimap()
 	if minimap and minimap.has_method("setup_map"):
@@ -68,6 +77,18 @@ func mark_minimap_uncertain(room_ids: Array) -> void:
 	_ensure_minimap()
 	if minimap and minimap.has_method("mark_uncertain"):
 		minimap.call("mark_uncertain", room_ids)
+
+
+func set_minimap_room_state(room_id: String, state: String) -> void:
+	_ensure_minimap()
+	if minimap and minimap.has_method("set_room_state"):
+		minimap.call("set_room_state", room_id, state)
+
+
+func reveal_minimap_rooms(room_ids: Array) -> void:
+	_ensure_minimap()
+	if minimap and minimap.has_method("reveal_rooms"):
+		minimap.call("reveal_rooms", room_ids)
 
 
 func show_message(text: String, duration := 3.0) -> void:
@@ -105,3 +126,19 @@ func _ensure_minimap() -> void:
 	minimap = MINIMAP_SCRIPT.new() as Control
 	minimap.name = "Minimap"
 	add_child(minimap)
+
+
+func _ensure_objective_label() -> void:
+	if objective_label:
+		return
+	objective_label = Label.new()
+	objective_label.name = "ObjectiveLabel"
+	objective_label.anchor_left = 1.0
+	objective_label.anchor_right = 1.0
+	objective_label.offset_left = -360.0
+	objective_label.offset_top = 18.0
+	objective_label.offset_right = -18.0
+	objective_label.offset_bottom = 46.0
+	objective_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	objective_label.add_theme_color_override("font_color", Color(0.88, 0.78, 0.54, 1.0))
+	add_child(objective_label)

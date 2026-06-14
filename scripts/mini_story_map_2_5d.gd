@@ -5,6 +5,7 @@ const MUSHROOM_MAN_SCENE := preload("res://scenes/mushroom_man_2_5d.tscn")
 const STONE_GUARD_SCENE := preload("res://scenes/stone_guard_2_5d.tscn")
 const ROOT_FRAGMENT_SCENE := preload("res://scenes/root_fragment_pickup_2_5d.tscn")
 const WEAPON_PICKUP_SCENE := preload("res://scenes/weapon_pickup_2_5d.tscn")
+const ROOT_SHRINE_SCENE := preload("res://scenes/root_shrine_2_5d.tscn")
 const KEY_PICKUP_SCRIPT := preload("res://scripts/key_pickup_2_5d.gd")
 const EXIT_GATE_SCRIPT := preload("res://scripts/exit_gate_2_5d.gd")
 const BACK_STAIR_SCRIPT := preload("res://scripts/back_stair_2_5d.gd")
@@ -18,6 +19,14 @@ const CORRIDOR_WIDTH := 3.1
 const DOOR_GAP := 3.2
 const WALL_THICKNESS := 0.38
 const WALL_HEIGHT := 1.45
+
+const ROOM_STATE_UNKNOWN := "unknown"
+const ROOM_STATE_DISCOVERED := "discovered"
+const ROOM_STATE_ACTIVE_COMBAT := "active_combat"
+const ROOM_STATE_CLEARED := "cleared"
+const ROOM_STATE_SHIFTED := "shifted"
+
+static var dried_roots_bank := 0
 
 # TODO: Future passive item resources can grow from these ids without touching
 # weapon loot. v0.4 only keeps this catalogue as design-facing placeholder data.
@@ -50,6 +59,7 @@ var ui: Node
 var dungeon_root: Node3D
 var has_key := false
 var root_fragments := 0
+var dried_roots := 0
 var run_locked := false
 # ─── Katman sistemi ───
 var current_main_layer := 1            # Şu anki ana katman (1-4)
@@ -75,6 +85,9 @@ var cell_to_room_id: Dictionary = {}
 var graph: Dictionary = {}
 var corridor_variants: Dictionary = {}
 var room_enemy_counts: Dictionary = {}
+var room_states: Dictionary = {}
+var room_combat_gates: Dictionary = {}
+var room_clear_rewards_spawned: Dictionary = {}
 var blocking_prop_positions: Dictionary = {}
 var discovered_rooms: Dictionary = {}
 var shown_lore_messages: Dictionary = {}
@@ -91,6 +104,7 @@ var exit_room_id := ""
 func _ready() -> void:
 	add_to_group("mini_story_manager_2_5d")
 	Engine.time_scale = 1.0
+	dried_roots = dried_roots_bank
 	_apply_startup_presentation()
 	if generation_seed != 0:
 		seed(generation_seed)
@@ -102,6 +116,7 @@ func _ready() -> void:
 	_build_dungeon()
 	_update_key_ui()
 	_update_root_fragment_ui()
+	_refresh_objective()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -115,6 +130,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func collect_key() -> void:
 	has_key = true
 	_update_key_ui()
+	_refresh_objective()
 	if not key_shift_done:
 		key_shift_done = true
 		call_deferred("_delayed_key_shift")
@@ -180,10 +196,137 @@ func show_lore_message(text: String, duration := 3.0) -> void:
 	show_message(text, duration)
 
 
-func collect_root_fragment(amount := 1) -> void:
-	root_fragments += max(amount, 0)
+func collect_root_fragment(amount: int = 1) -> void:
+	add_root_fragments(amount)
+
+
+func get_root_fragments() -> int:
+	return root_fragments
+
+
+func add_root_fragments(amount: int = 1, show_feedback: bool = true) -> int:
+	var safe_amount := maxi(amount, 0)
+	if safe_amount <= 0:
+		return root_fragments
+	root_fragments += safe_amount
 	_update_root_fragment_ui()
-	show_message("Kök Parçası +%d" % amount, 1.5)
+	if show_feedback:
+		show_message("Kök Parçası +%d" % safe_amount, 1.5)
+	return root_fragments
+
+
+func spend_root_fragments(amount: int) -> bool:
+	var safe_amount := maxi(amount, 0)
+	if safe_amount <= 0:
+		return true
+	if root_fragments < safe_amount:
+		return false
+	root_fragments -= safe_amount
+	_update_root_fragment_ui()
+	return true
+
+
+func get_dried_roots() -> int:
+	return dried_roots
+
+
+func convert_root_fragments_on_death() -> int:
+	var converted: int = int(floor(float(root_fragments) * 0.5))
+	if converted <= 0:
+		return 0
+	dried_roots += converted
+	dried_roots_bank = dried_roots
+	root_fragments = 0
+	_update_root_fragment_ui()
+	return converted
+
+
+func use_root_shrine_option(option_id: String) -> bool:
+	match option_id:
+		"heal":
+			return _use_root_shrine_heal()
+		"reveal":
+			return _use_root_shrine_reveal()
+		"empower":
+			return _use_root_shrine_empower()
+		_:
+			show_message("Kök Sunağı sessiz kaldı.", 1.6)
+			return false
+
+
+func get_root_shrine_option_label(option_id: String) -> String:
+	match option_id:
+		"heal":
+			return "Şifa (3 Kök Parçası)"
+		"reveal":
+			return "Yolları Fısılda (4 Kök Parçası)"
+		"empower":
+			return "Silahı Güçlendir (5 Kök Parçası)"
+		_:
+			return "Sessiz Kök"
+
+
+func _use_root_shrine_heal() -> bool:
+	if player == null or not is_instance_valid(player) or not player.has_method("heal"):
+		show_message("Kökler yaranı bulamadı.", 1.8)
+		return false
+	if int(player.get("current_hp")) >= int(player.get("max_hp")):
+		show_message("Asha'nın yarası yok.", 1.6)
+		return false
+	if not spend_root_fragments(3):
+		show_message("Yeterli Kök Parçası yok.", 1.8)
+		return false
+	var healed: int = int(player.call("heal", 25))
+	if healed <= 0:
+		add_root_fragments(3, false)
+		show_message("Kökler yaranı bulamadı.", 1.8)
+		return false
+	show_message("Kökler yaranı sardı.", 2.0)
+	return true
+
+
+func _use_root_shrine_reveal() -> bool:
+	if not ui or not ui.has_method("reveal_minimap_rooms"):
+		show_message("Harita henüz bu fısıltıyı taşıyamıyor.", 2.0)
+		return false
+	var reveal_ids := _nearby_room_ids_for_reveal()
+	if reveal_ids.is_empty():
+		show_message("Harita henüz bu fısıltıyı taşıyamıyor.", 2.0)
+		return false
+	if not spend_root_fragments(4):
+		show_message("Yeterli Kök Parçası yok.", 1.8)
+		return false
+	ui.call("reveal_minimap_rooms", reveal_ids)
+	show_message("Kökler çevredeki yolları fısıldadı.", 2.1)
+	return true
+
+
+func _use_root_shrine_empower() -> bool:
+	if player == null or not is_instance_valid(player) or not player.has_method("add_run_damage_bonus"):
+		show_message("Silah bu kökü kabul etmedi.", 1.8)
+		return false
+	if not spend_root_fragments(5):
+		show_message("Yeterli Kök Parçası yok.", 1.8)
+		return false
+	player.call("add_run_damage_bonus", 1)
+	show_message("Kökler silahına işledi.", 2.0)
+	return true
+
+
+func _nearby_room_ids_for_reveal() -> Array[String]:
+	var reveal_ids: Array[String] = []
+	var anchor_room_id := current_room_id
+	if anchor_room_id.is_empty() and player:
+		anchor_room_id = _room_id_at_position(player.global_position)
+	if anchor_room_id.is_empty():
+		return reveal_ids
+	for neighbor_id in _neighbor_room_ids_for(anchor_room_id):
+		if not reveal_ids.has(neighbor_id):
+			reveal_ids.append(neighbor_id)
+		for second_id in _neighbor_room_ids_for(neighbor_id):
+			if second_id != anchor_room_id and not reveal_ids.has(second_id):
+				reveal_ids.append(second_id)
+	return reveal_ids
 
 
 const WEAPON_SWAP_POPUP_SCRIPT := preload("res://scripts/weapon_swap_popup.gd")
@@ -211,8 +354,7 @@ func collect_weapon(weapon_id: String) -> void:
 	
 	# Zaten sahip olunan silah
 	if already_owned:
-		root_fragments += 1
-		_update_root_fragment_ui()
+		add_root_fragments(1, false)
 		show_message("Zaten vardı. Kök Parçası +1", 1.8)
 		return
 	
@@ -307,7 +449,7 @@ func _get_player_weapon_manager() -> WeaponManager25D:
 	return player.get("weapon_manager") as WeaponManager25D
 
 
-func enemy_died(enemy_type: String, drop_position: Vector3) -> void:
+func enemy_died(enemy_type: String, drop_position: Vector3, enemy: Node = null) -> void:
 	var root_chance := 0.45
 	var weapon_chance := 0.08
 	match enemy_type:
@@ -323,20 +465,33 @@ func enemy_died(enemy_type: String, drop_position: Vector3) -> void:
 	if randf() <= weapon_chance:
 		_spawn_weapon_pickup(drop_position + Vector3(-0.25, 0.0, 0.0), _get_random_weapon_id())
 
-	var room_id := _room_id_at_position(drop_position)
+	var room_id := ""
+	if enemy and is_instance_valid(enemy) and enemy.has_meta("room_id"):
+		room_id = String(enemy.get_meta("room_id"))
+	if room_id.is_empty():
+		room_id = _room_id_at_position(drop_position)
 	if not room_id.is_empty() and room_enemy_counts.has(room_id):
+		var was_combat_room := _room_should_lock_on_entry(room_id)
 		var remaining: int = maxi(int(room_enemy_counts[room_id]) - 1, 0)
 		room_enemy_counts[room_id] = remaining
-		if remaining == 0 and discovered_rooms.has(room_id):
-			show_message("Oda sustu.", 1.4)
+		if remaining == 0:
+			if _room_state(room_id) == ROOM_STATE_ACTIVE_COMBAT or was_combat_room:
+				_clear_room(room_id)
+			elif discovered_rooms.has(room_id):
+				_set_room_state(room_id, ROOM_STATE_CLEARED)
+				_refresh_objective()
 
 
 func player_died() -> void:
 	if run_locked:
 		return
 	run_locked = true
+	var converted_roots := convert_root_fragments_on_death()
 	if ui and ui.has_method("show_death"):
-		ui.call("show_death", "Asha Kökaltı'nda kayboldu. Koşu yeniden başlıyor...")
+		var death_text := "Asha Kökaltı'nda kayboldu. Koşu yeniden başlıyor..."
+		if converted_roots > 0:
+			death_text += "\nKurutulmuş Kök +%d" % converted_roots
+		ui.call("show_death", death_text)
 	await get_tree().create_timer(restart_delay).timeout
 	get_tree().reload_current_scene()
 
@@ -406,6 +561,38 @@ func _update_root_fragment_ui() -> void:
 		ui.call("set_root_fragments", root_fragments)
 
 
+func _set_objective(text: String) -> void:
+	if ui and ui.has_method("set_objective_text"):
+		ui.call("set_objective_text", text)
+
+
+func _refresh_objective() -> void:
+	if run_locked:
+		return
+	if not current_room_id.is_empty() and _room_state(current_room_id) == ROOM_STATE_ACTIVE_COMBAT:
+		_set_objective("Odayı temizle")
+	elif has_key:
+		_set_objective("Çıkışa ulaş")
+	else:
+		_set_objective("Anahtarı bul")
+
+
+func _room_state(room_id: String) -> String:
+	return String(room_states.get(room_id, ROOM_STATE_UNKNOWN))
+
+
+func _set_room_state(room_id: String, state: String) -> void:
+	if room_id.is_empty() or not rooms.has(room_id):
+		return
+	room_states[room_id] = state
+	var room: Dictionary = rooms[room_id] as Dictionary
+	room["state"] = state
+	room["cleared"] = state == ROOM_STATE_CLEARED
+	rooms[room_id] = room
+	if ui and ui.has_method("set_minimap_room_state"):
+		ui.call("set_minimap_room_state", room_id, state)
+
+
 func _setup_minimap() -> void:
 	if ui and ui.has_method("setup_minimap"):
 		ui.call("setup_minimap", _build_minimap_data())
@@ -416,8 +603,117 @@ func _discover_room(room_id: String) -> void:
 		return
 	current_room_id = room_id
 	discovered_rooms[room_id] = true
+	var state := _room_state(room_id)
+	if state == ROOM_STATE_UNKNOWN or state == ROOM_STATE_SHIFTED:
+		_set_room_state(room_id, ROOM_STATE_DISCOVERED)
 	if ui and ui.has_method("visit_minimap_room"):
 		ui.call("visit_minimap_room", room_id)
+	if ui and ui.has_method("set_minimap_room_state"):
+		ui.call("set_minimap_room_state", room_id, _room_state(room_id))
+
+
+func _on_room_entered(room_id: String) -> void:
+	if run_locked or room_id.is_empty() or not rooms.has(room_id):
+		return
+	_discover_room(room_id)
+	if _room_should_lock_on_entry(room_id):
+		if _room_state(room_id) != ROOM_STATE_CLEARED and _room_state(room_id) != ROOM_STATE_ACTIVE_COMBAT:
+			_start_room_combat(room_id)
+	else:
+		if int(room_enemy_counts.get(room_id, 0)) <= 0 and _room_state(room_id) != ROOM_STATE_CLEARED:
+			_set_room_state(room_id, ROOM_STATE_DISCOVERED)
+		_refresh_objective()
+
+
+func _room_should_lock_on_entry(room_id: String) -> bool:
+	if not rooms.has(room_id):
+		return false
+	if int(room_enemy_counts.get(room_id, 0)) <= 0:
+		return false
+	var room: Dictionary = rooms[room_id] as Dictionary
+	var room_type: String = String(room.get("type", ""))
+	if room_type in ["wake", "fathers_map_room", "loot_niche", "key_alcove", "forgotten_exit", "sealed_white_door", "shifting_root_gate"]:
+		return false
+	return true
+
+
+func _start_room_combat(room_id: String) -> void:
+	_set_room_state(room_id, ROOM_STATE_ACTIVE_COMBAT)
+	_set_room_gates_open(room_id, false)
+	_set_objective("Odayı temizle")
+
+
+func _clear_room(room_id: String) -> void:
+	if room_id.is_empty() or not rooms.has(room_id):
+		return
+	if _room_state(room_id) == ROOM_STATE_CLEARED:
+		return
+	_set_room_state(room_id, ROOM_STATE_CLEARED)
+	_set_room_gates_open(room_id, true)
+	show_message("Oda sustu.", 1.4)
+	_spawn_room_clear_reward(room_id)
+	_refresh_objective()
+
+
+func _set_room_gates_open(room_id: String, open: bool) -> void:
+	if not room_combat_gates.has(room_id):
+		return
+	var gates: Array = room_combat_gates[room_id] as Array
+	for gate_variant in gates:
+		var gate := gate_variant as Node3D
+		if gate and is_instance_valid(gate):
+			_set_shift_gate_open(gate, open)
+
+
+func _setup_room_states_and_combat_gates() -> void:
+	room_combat_gates.clear()
+	for room_id in room_order:
+		_set_room_state(room_id, ROOM_STATE_UNKNOWN)
+		if _room_should_lock_on_entry(room_id):
+			_create_combat_gates_for_room(room_id)
+
+
+func _create_combat_gates_for_room(room_id: String) -> void:
+	var gates: Array[Node3D] = []
+	for neighbor_id in _neighbor_room_ids_for(room_id):
+		var gate_position := _connection_midpoint(room_id, neighbor_id)
+		var gate_size := _connection_gate_size(room_id, neighbor_id)
+		var gate_name := "%s_combat_gate_%s" % [room_id, neighbor_id]
+		var gate := _add_shift_gate(gate_name, gate_position, gate_size, true)
+		gates.append(gate)
+	room_combat_gates[room_id] = gates
+
+
+func _spawn_room_clear_reward(room_id: String) -> void:
+	if room_clear_rewards_spawned.has(room_id) or not rooms.has(room_id):
+		return
+	room_clear_rewards_spawned[room_id] = true
+	var room: Dictionary = rooms[room_id] as Dictionary
+	var room_type: String = String(room.get("type", "root_tunnel"))
+	var chances: Dictionary = _room_clear_reward_chances(room_type)
+	var shrine_chance: float = float(chances.get("shrine", 0.08))
+	var weapon_chance: float = float(chances.get("weapon", 0.10))
+	var root_chance: float = float(chances.get("root", 0.45))
+	var roll := randf()
+	var spawn_position := _safe_room_spawn_position(room, _room_point(room, 0.0, 0.0, 0.45), 0.8)
+	if roll < shrine_chance:
+		_spawn_root_shrine(spawn_position)
+	elif roll < shrine_chance + weapon_chance:
+		_spawn_weapon_pickup(spawn_position, _get_random_weapon_id())
+	elif roll < shrine_chance + weapon_chance + root_chance:
+		_spawn_root_fragment(spawn_position)
+
+
+func _room_clear_reward_chances(room_type: String) -> Dictionary:
+	match room_type:
+		"rat_nest":
+			return {"root": 0.60, "weapon": 0.08, "shrine": 0.05}
+		"mushroom_cellar":
+			return {"root": 0.50, "weapon": 0.12, "shrine": 0.10}
+		"stone_watch_room":
+			return {"root": 0.50, "weapon": 0.18, "shrine": 0.08}
+		_:
+			return {"root": 0.45, "weapon": 0.10, "shrine": 0.08}
 
 
 func _mark_minimap_uncertain(room_ids: Array) -> void:
@@ -437,6 +733,7 @@ func _build_minimap_data() -> Dictionary:
 			"is_start": room_id == start_room_id,
 			"is_key": room_id == key_room_id,
 			"is_exit": room_id == exit_room_id,
+			"state": _room_state(room_id),
 		}
 	return {
 		"rooms": map_rooms,
@@ -507,6 +804,7 @@ func _build_dungeon() -> void:
 	_add_room_details()
 	_add_room_entry_triggers()
 	_spawn_room_contents()
+	_setup_room_states_and_combat_gates()
 
 	var key_room: Dictionary = rooms[key_room_id] as Dictionary
 	var exit_room: Dictionary = rooms[exit_room_id] as Dictionary
@@ -539,7 +837,12 @@ func _build_dungeon() -> void:
 			_spawn_boss(exit_room)
 
 	_setup_minimap()
-	_discover_room(start_room_id)
+	var initial_room_id := start_room_id
+	if player:
+		var spawn_room_id := _room_id_at_position(player.global_position)
+		if not spawn_room_id.is_empty():
+			initial_room_id = spawn_room_id
+	_on_room_entered(initial_room_id)
 
 	if debug_print_generation:
 		print("KÖKLER v0.4 room graph: ", room_order.size(), " rooms | start=", start_room_id, " key=", key_room_id, " exit=", exit_room_id)
@@ -562,6 +865,9 @@ func _try_generate_room_graph() -> bool:
 	graph.clear()
 	corridor_variants.clear()
 	room_enemy_counts.clear()
+	room_states.clear()
+	room_combat_gates.clear()
+	room_clear_rewards_spawned.clear()
 	blocking_prop_positions.clear()
 	discovered_rooms.clear()
 	current_room_id = ""
@@ -630,6 +936,9 @@ func _build_fallback_graph() -> void:
 	graph.clear()
 	corridor_variants.clear()
 	room_enemy_counts.clear()
+	room_states.clear()
+	room_combat_gates.clear()
+	room_clear_rewards_spawned.clear()
 	blocking_prop_positions.clear()
 	discovered_rooms.clear()
 	current_room_id = ""
@@ -1260,6 +1569,7 @@ func _spawn_enemy_in_room(room_id: String, scene: PackedScene, x_ratio: float, z
 	var spawn_position := _room_point(room, x_ratio, z_ratio, 0.0)
 	enemy.global_position = _safe_room_spawn_position(room, spawn_position, 0.9)
 	enemy.set_meta("room_id", room_id)
+	enemy.add_to_group("room_enemy_%s" % room_id)
 	room_enemy_counts[room_id] = int(room_enemy_counts.get(room_id, 0)) + 1
 	return enemy
 
@@ -1283,8 +1593,12 @@ func _show_puzzle_message() -> void:
 func _trigger_labyrinth_shift(anchor_room_id: String, add_temporary_gate := false, message := "Kökaltı yer değiştirdi.") -> void:
 	labyrinth_shift_count += 1
 	var affected := _shift_affected_rooms(anchor_room_id)
+	for room_id in affected:
+		if rooms.has(room_id) and _room_state(room_id) != ROOM_STATE_CLEARED:
+			_set_room_state(room_id, ROOM_STATE_SHIFTED)
 	_mark_minimap_uncertain(affected)
 	show_message(message, 2.0)
+	_set_objective("Kökler yer değiştirdi")
 	print("KOKLER shift event ", labyrinth_shift_count, " anchor=", anchor_room_id, " affected=", affected)
 	if add_temporary_gate:
 		_spawn_temporary_shift_gate_for_optional_leaf(anchor_room_id)
@@ -1371,6 +1685,18 @@ func _spawn_root_fragment(position: Vector3) -> void:
 	pickup.set("manager", self)
 	var pickup_position := _safe_pickup_position(Vector3(position.x, 0.35, position.z), 0.45)
 	pickup.global_position = pickup_position
+
+
+func _spawn_root_shrine(position: Vector3) -> void:
+	if ROOT_SHRINE_SCENE == null:
+		return
+	var shrine := ROOT_SHRINE_SCENE.instantiate() as Node3D
+	if shrine == null:
+		return
+	dungeon_root.add_child(shrine)
+	shrine.set("manager", self)
+	var shrine_position := _safe_pickup_position(Vector3(position.x, 0.0, position.z), 0.8)
+	shrine.global_position = shrine_position
 
 
 func _spawn_weapon_pickup(position: Vector3, weapon_id: String) -> void:
@@ -1573,7 +1899,7 @@ func _add_lore_trigger(message: String, position: Vector3, size: Vector3, durati
 	area.add_child(shape)
 	area.body_entered.connect(func(body: Node) -> void:
 		if body.is_in_group("player_2_5d") and not room_id.is_empty():
-			_discover_room(room_id)
+			_on_room_entered(room_id)
 	)
 
 
@@ -2185,6 +2511,8 @@ func _spawn_room_contents() -> void:
 
 
 func _spawn_test_weapons_in_start_room() -> void:
+	if not spawn_debug_start_weapons:
+		return
 	# Sadece ilk ana katmanın ilk mikro katında test silahları
 	if current_main_layer != 1 or current_micro_floor != 1:
 		return

@@ -11,6 +11,7 @@ var connections: Array = []
 var visited: Dictionary = {}
 var known: Dictionary = {}
 var uncertain: Dictionary = {}
+var room_states: Dictionary = {}
 
 var start_room_id := ""
 var key_room_id := ""
@@ -50,6 +51,11 @@ func setup_map(map_data: Dictionary) -> void:
 	visited.clear()
 	known.clear()
 	uncertain.clear()
+	room_states.clear()
+	for room_id_variant in rooms.keys():
+		var room_id := String(room_id_variant)
+		var room_info: Dictionary = rooms[room_id] as Dictionary
+		room_states[room_id] = String(room_info.get("state", "unknown"))
 	current_room_id = ""
 	_calculate_bounds()
 	if not start_room_id.is_empty():
@@ -64,6 +70,8 @@ func visit_room(room_id: String) -> void:
 	visited[room_id] = true
 	known[room_id] = true
 	uncertain.erase(room_id)
+	if String(room_states.get(room_id, "unknown")) == "unknown" or String(room_states.get(room_id, "unknown")) == "shifted":
+		room_states[room_id] = "discovered"
 	for neighbor_id in _neighbors_for(room_id):
 		known[String(neighbor_id)] = true
 	queue_redraw()
@@ -77,6 +85,29 @@ func mark_uncertain(room_ids: Array) -> void:
 		if known.has(room_id):
 			uncertain[room_id] = true
 			visited.erase(room_id)
+			room_states[room_id] = "shifted"
+	queue_redraw()
+
+
+func set_room_state(room_id: String, state: String) -> void:
+	if room_id.is_empty() or not rooms.has(room_id):
+		return
+	room_states[room_id] = state
+	if state == "shifted" and known.has(room_id) and room_id != current_room_id:
+		uncertain[room_id] = true
+		visited.erase(room_id)
+	elif state == "cleared" or state == "active_combat" or state == "discovered":
+		known[room_id] = true
+		uncertain.erase(room_id)
+	queue_redraw()
+
+
+func reveal_rooms(room_ids: Array) -> void:
+	for id_variant in room_ids:
+		var room_id := String(id_variant)
+		if room_id.is_empty() or not rooms.has(room_id):
+			continue
+		known[room_id] = true
 	queue_redraw()
 
 
@@ -115,6 +146,7 @@ func _draw() -> void:
 func _draw_room(room_id: String, font: Font) -> void:
 	var room_info: Dictionary = rooms[room_id] as Dictionary
 	var room_type: String = String(room_info.get("type", "root_tunnel"))
+	var room_state: String = String(room_states.get(room_id, room_info.get("state", "unknown")))
 	var room_size := _draw_size_for_type(room_type)
 	var pos := _room_position(room_id)
 	var rect := Rect2(pos - room_size * 0.5, room_size)
@@ -125,10 +157,16 @@ func _draw_room(room_id: String, font: Font) -> void:
 	if room_id == current_room_id:
 		fill = Color(0.78, 0.52, 0.20, 0.95)
 		border = Color(1.0, 0.82, 0.42, 1.0)
-	elif uncertain.has(room_id) or not visited.has(room_id):
+	elif room_state == "active_combat":
+		fill = Color(0.34, 0.11, 0.06, 0.96)
+		border = Color(0.92, 0.32, 0.14, 0.95)
+	elif uncertain.has(room_id) or room_state == "shifted" or not visited.has(room_id):
 		fill = Color(0.055, 0.043, 0.035, 0.94)
 		border = Color(0.24, 0.18, 0.12, 0.85)
 		label = "?"
+	elif room_state == "cleared":
+		fill = Color(0.18, 0.18, 0.095, 0.95)
+		border = Color(0.62, 0.48, 0.24, 0.95)
 	else:
 		match room_type:
 			"mushroom_cellar":

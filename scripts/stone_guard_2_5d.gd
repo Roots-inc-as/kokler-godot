@@ -195,7 +195,7 @@ func _die() -> void:
 	collision_layer = 0
 	collision_mask = 0
 	if manager and manager.has_method("enemy_died"):
-		manager.call("enemy_died", "stone_guard", global_position)
+		manager.call("enemy_died", "stone_guard", global_position, self)
 	if _health_bar:
 		_health_bar.visible = false
 	_spawn_crumble_piece(Vector3(-0.22, 0.4, 0.0))

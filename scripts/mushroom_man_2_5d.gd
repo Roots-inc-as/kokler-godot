@@ -243,7 +243,7 @@ func _die() -> void:
 	collision_layer = 0
 	collision_mask = 0
 	if manager and manager.has_method("enemy_died"):
-		manager.call("enemy_died", "mushroom_man", global_position)
+		manager.call("enemy_died", "mushroom_man", global_position, self)
 	if _health_bar:
 		_health_bar.visible = false
 	if pulse_visual:
