@@ -15,6 +15,7 @@ const MINIMAP_SCRIPT := preload("res://scripts/minimap_2_5d.gd")
 @onready var victory_panel: ColorRect = $VictoryPanel
 @onready var victory_label: Label = $VictoryPanel/VictoryLabel
 @onready var hit_flash: ColorRect = %HitFlash
+var upgrades_label: Label
 
 var message_token := 0
 
@@ -33,6 +34,50 @@ func _ready() -> void:
 	set_controls_help_text(_default_controls_help_text())
 	message_label.visible = false
 	victory_panel.visible = false
+	var upgrades_label: Label
+
+
+func _ensure_upgrades_label() -> void:
+	if get_node_or_null("UpgradesLabel"):
+		return
+	upgrades_label = Label.new()
+	upgrades_label.name = "UpgradesLabel"
+	upgrades_label.position = Vector2(12, 120)
+	upgrades_label.add_theme_font_size_override("font_size", 14)
+	upgrades_label.add_theme_color_override("font_color", Color(0.85, 0.78, 0.45))
+	add_child(upgrades_label)
+	upgrades_label.text = ""
+
+
+func set_upgrades(ids: Array) -> void:
+	if not upgrades_label:
+		_ensure_upgrades_label()
+	if ids.is_empty():
+		upgrades_label.text = ""
+		return
+	var counts := {}
+	var order := []
+	for id in ids:
+		if not counts.has(id):
+			counts[id] = 0
+			order.append(id)
+		counts[id] += 1
+	var lines := ["— Kartlar —"]
+	for id in order:
+		var title: String = _upgrade_title(id)
+		var n: int = counts[id]
+		if n > 1:
+			lines.append("%s x%d" % [title, n])
+		else:
+			lines.append(title)
+	upgrades_label.text = "\n".join(lines)
+
+
+func _upgrade_title(id: String) -> String:
+	var defs = load("res://scripts/upgrade_screen.gd").UPGRADES
+	if defs.has(id):
+		return String(defs[id]["title"])
+	return id
 
 
 func set_hp(current_hp: int, max_hp: int) -> void:

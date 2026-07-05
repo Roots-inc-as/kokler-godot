@@ -11,6 +11,8 @@ const EXIT_GATE_SCRIPT := preload("res://scripts/exit_gate_2_5d.gd")
 const BACK_STAIR_SCRIPT := preload("res://scripts/back_stair_2_5d.gd")
 const LORE_TRIGGER_SCRIPT := preload("res://scripts/lore_trigger_3d.gd")
 const DEATH_SCREEN_SCRIPT := preload("res://scripts/death_screen.gd")
+const UPGRADE_SCREEN_SCRIPT := preload("res://scripts/upgrade_screen.gd")
+const KEEP_CARD_SCREEN_SCRIPT := preload("res://scripts/keep_card_screen.gd")
 
 const GRID_SIZE := 10
 const CELL_SPACING := 23.0
@@ -77,6 +79,8 @@ var _spawn_at_exit_room := false
 var _boss_required := false
 var _boss_defeated := false
 var _active_death_screen: CanvasLayer
+var _active_upgrade_screen: CanvasLayer
+var _layer_cards := []
 var puzzle_message_time_msec := -10000
 var current_room_id := ""
 var labyrinth_shift_count := 0
@@ -167,29 +171,100 @@ func try_exit() -> void:
 	else:
 		# Mikro kata geç
 		_advance_micro_floor()
+		
+		
+func _show_keep_card_screen() -> void:
+	if _layer_cards.is_empty():
+		return
+	var screen: CanvasLayer = KEEP_CARD_SCREEN_SCRIPT.new()
+	if screen.has_method("setup"):
+		screen.call("setup", _layer_cards)
+	get_tree().current_scene.add_child(screen)
+	get_tree().paused = true
+	var kept_id: String = await screen.kept
+	if player and player.has_method("keep_only_upgrades"):
+		if kept_id == "":
+			player.call("keep_only_upgrades", [])
+		else:
+			player.call("keep_only_upgrades", [kept_id])
+	_layer_cards = [] if kept_id == "" else [kept_id]
+	get_tree().paused = false
+		
+		
+func _show_upgrade_screen() -> void:
+	var screen: CanvasLayer = UPGRADE_SCREEN_SCRIPT.new()
+	if screen.has_method("setup"):
+		screen.call("setup")
+	get_tree().current_scene.add_child(screen)
+	_active_upgrade_screen = screen
+	get_tree().paused = true
+	var chosen_id: String = await screen.upgrade_chosen
+	if player and player.has_method("apply_upgrade"):
+		player.call("apply_upgrade", chosen_id)
+		_layer_cards.append(chosen_id)
+	_active_upgrade_screen = null
+	get_tree().paused = false
+		
+func _create_fade_layer() -> ColorRect:
+	var layer := CanvasLayer.new()
+	layer.layer = 90
+	layer.name = "FadeLayer"
+	layer.process_mode = Node.PROCESS_MODE_ALWAYS
+	get_tree().current_scene.add_child(layer)
+	var rect := ColorRect.new()
+	rect.color = Color(0, 0, 0, 0)
+	rect.anchor_right = 1.0
+	rect.anchor_bottom = 1.0
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(rect)
+	return rect
+
+
+func _fade_to_black(rect: ColorRect, duration := 0.5) -> void:
+	var tween := create_tween()
+	tween.tween_property(rect, "color", Color(0, 0, 0, 1), duration)
+	await tween.finished
+
+
+func _fade_from_black(rect: ColorRect, duration := 0.5) -> void:
+	var tween := create_tween()
+	tween.tween_property(rect, "color", Color(0, 0, 0, 0), duration)
+	await tween.finished
+	var layer := rect.get_parent()
+	if layer and is_instance_valid(layer):
+		layer.queue_free()
 
 
 func _finish_main_layer() -> void:
 	print("=== ANA KATMAN ", current_main_layer, " bitti")
 	
-	# 4 ana katman bitti mi?
 	if current_main_layer >= max_main_layers:
 		run_locked = true
 		if ui and ui.has_method("show_victory"):
 			ui.call("show_victory", "Şimdilik kaçtın. Ama Kökler seni hatırlıyor.")
 		return
 	
-	# Yeni ana katmana geç
-	current_main_layer += 1
-	show_message("Ana Katman %d" % current_main_layer, 2.0)
-	_setup_new_main_layer()
+	# Geçiş sırasında oyuncu/düşman donsun
+	run_locked = true
 	
-	run_locked = false
+	# Ekranı karart
+	var fade_rect := _create_fade_layer()
+	await _fade_to_black(fade_rect, 0.6)
+	
+	# Yeni ana katmana geç (ekran siyahken)
+	current_main_layer += 1
+	_setup_new_main_layer()
 	has_key = false
 	_update_key_ui()
-	
 	_clear_dungeon()
 	_build_dungeon()
+	
+	# Katman adını göster ve ekranı aç
+	show_message("Ana Katman %d" % current_main_layer, 2.0)
+	run_locked = false
+	await _fade_from_black(fade_rect, 0.6)
+	# Yeni ana katmana geçince nadir upgrade kartı sun
+	_show_keep_card_screen()
 
 
 func show_message(text: String, duration := 3.0) -> void:
@@ -2809,6 +2884,8 @@ func _advance_micro_floor() -> void:
 	# Dungeon'u yeniden kur
 	_clear_dungeon()
 	_build_dungeon()
+	# Yeni mikro kata geçince yaygın upgrade kartı sun
+	_show_upgrade_screen()
 	
 	
 func go_back_micro_floor() -> void:
@@ -2837,6 +2914,11 @@ func debug_jump_to_boss() -> void:
 	_update_key_ui()
 	_clear_dungeon()
 	_build_dungeon()
+	
+# TEST: Ana katmanı bitir (fade geçişini test için)
+func debug_next_layer() -> void:
+	print("=== TEST: Ana katman geçişi (fade) tetiklendi")
+	_finish_main_layer()
 
 
 func _clear_dungeon() -> void:

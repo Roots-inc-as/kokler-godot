@@ -61,6 +61,17 @@ var story_manager: Node
 var weapon_manager: WeaponManager25D
 var current_weapon: WeaponData
 var run_damage_bonus := 0
+# ─── Upgrade sistemi (liste + yeniden hesapla) ───
+var acquired_upgrades := []
+var upgrade_enemy_bonus := {}
+var upgrade_crit_chance := 0.0
+var upgrade_lifesteal := 0
+var _base_max_hp := 0
+var _base_move_speed := 0.0
+var _base_dash_cooldown := 0.0
+var _base_attack_cooldown := 0.0
+var _base_charged_mult := 0
+var _base_captured := false
 var _is_charged_swing: bool = false
 var _pending_charged_damage: int = 0
 var _pending_charged_knockback: float = 0.0
@@ -124,6 +135,13 @@ func _physics_process(delta: float) -> void:
 			story_manager.call("debug_jump_to_boss")
 	elif not Input.is_physical_key_pressed(KEY_B):
 		_debug_boss_key_held = false
+		# TEST: N tuşu → ana katman geçişi (fade) test
+	if Input.is_physical_key_pressed(KEY_N) and not _debug_next_key_held:
+		_debug_next_key_held = true
+		if story_manager and story_manager.has_method("debug_next_layer"):
+			story_manager.call("debug_next_layer")
+	elif not Input.is_physical_key_pressed(KEY_N):
+		_debug_next_key_held = false
 	# Sol tık (slot 1)
 	if Input.is_action_just_pressed("attack"):
 		_begin_charge(1)
@@ -191,6 +209,79 @@ func heal(amount: int) -> int:
 	if current_hp != before:
 		health_changed.emit(current_hp, max_hp)
 	return current_hp - before
+
+
+func apply_upgrade(id: String) -> void:
+	acquired_upgrades.append(id)
+	_recalculate_upgrades()
+	_emit_upgrades_ui()
+
+
+func keep_only_upgrades(kept_ids: Array) -> void:
+	acquired_upgrades = kept_ids.duplicate()
+	_recalculate_upgrades()
+	_emit_upgrades_ui()
+
+
+func _recalculate_upgrades() -> void:
+	if not _base_captured:
+		_base_max_hp = max_hp
+		_base_move_speed = move_speed
+		_base_dash_cooldown = dash_cooldown
+		_base_attack_cooldown = attack_cooldown
+		_base_charged_mult = charged_damage_multiplier
+		_base_captured = true
+
+	var old_max := max_hp
+	max_hp = _base_max_hp
+	move_speed = _base_move_speed
+	dash_cooldown = _base_dash_cooldown
+	attack_cooldown = _base_attack_cooldown
+	charged_damage_multiplier = _base_charged_mult
+	run_damage_bonus = 0
+	upgrade_enemy_bonus = {}
+	upgrade_crit_chance = 0.0
+	upgrade_lifesteal = 0
+
+	for id in acquired_upgrades:
+		match id:
+			"hp_up":
+				max_hp += 3
+			"damage_up":
+				run_damage_bonus += 1
+			"speed_up":
+				move_speed += 0.6
+			"dash_cd":
+				dash_cooldown = maxf(dash_cooldown - 0.2, 0.3)
+			"attack_speed":
+				attack_cooldown = maxf(attack_cooldown - 0.05, 0.12)
+			"rat_slayer":
+				upgrade_enemy_bonus["blind_rat_2_5d"] = int(upgrade_enemy_bonus.get("blind_rat_2_5d", 0)) + 2
+			"mushroom_slayer":
+				upgrade_enemy_bonus["mushroom_man_2_5d"] = int(upgrade_enemy_bonus.get("mushroom_man_2_5d", 0)) + 2
+			"hp_up_big":
+				max_hp += 6
+			"damage_up_big":
+				run_damage_bonus += 3
+			"crit":
+				upgrade_crit_chance = minf(upgrade_crit_chance + 0.2, 1.0)
+			"lifesteal":
+				upgrade_lifesteal += 1
+			"guard_slayer":
+				upgrade_enemy_bonus["stone_guard_2_5d"] = int(upgrade_enemy_bonus.get("stone_guard_2_5d", 0)) + 3
+			"charged_master":
+				charged_damage_multiplier += 1
+
+	if max_hp > old_max:
+		current_hp += (max_hp - old_max)
+	current_hp = clampi(current_hp, 1, max_hp)
+	_emit_health_state()
+
+
+func _emit_upgrades_ui() -> void:
+	var ui_node := get_tree().get_first_node_in_group("ui_2_5d")
+	if ui_node and ui_node.has_method("set_upgrades"):
+		ui_node.call("set_upgrades", acquired_upgrades)
 
 
 func add_run_damage_bonus(amount: int) -> int:
@@ -345,7 +436,19 @@ func _damage_enemy(body: Node) -> void:
 			final_knockback = weapon.knockback
 	final_damage += run_damage_bonus
 	
+	for group_name in upgrade_enemy_bonus:
+		if body.is_in_group(group_name):
+			final_damage += int(upgrade_enemy_bonus[group_name])
+	
+	if upgrade_crit_chance > 0.0 and randf() < upgrade_crit_chance:
+		final_damage *= 2
+	
 	body.call("take_damage", final_damage)
+	
+	if upgrade_lifesteal > 0 and current_hp < max_hp:
+		current_hp = mini(current_hp + upgrade_lifesteal, max_hp)
+		_emit_health_state()
+	
 	if final_knockback > 0.0 and body.has_method("apply_knockback"):
 		body.call("apply_knockback", global_position, final_knockback)
 	
@@ -583,6 +686,7 @@ const PAUSE_MENU_SCRIPT := preload("res://scripts/pause_menu_screen.gd")
 var _active_pause_menu: CanvasLayer
 var _ignore_pause_key := false
 var _debug_boss_key_held := false
+var _debug_next_key_held := false
 
 func _toggle_pause_menu() -> void:
 	if _active_pause_menu and is_instance_valid(_active_pause_menu):
