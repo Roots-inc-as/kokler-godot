@@ -29,9 +29,12 @@ const ROOM_STATE_ACTIVE_COMBAT := "active_combat"
 const ROOM_STATE_CLEARED := "cleared"
 const ROOM_STATE_SHIFTED := "shifted"
 const MAIN_SCENE_PATH := "res://scenes/main_2_5d.tscn"
+const MAIN_MENU_SCENE_PATH := "res://scenes/main_menu.tscn"
 const NORMAL_ROOM_GATE_CLOSE_CHANCE := 0.20
 
 static var dried_roots_bank := 0
+static var kok_memory_pending := false
+static var kok_memory_room_type := ""
 
 # TODO: Future passive item resources can grow from these ids without touching
 # weapon loot. v0.4 only keeps this catalogue as design-facing placeholder data.
@@ -89,6 +92,11 @@ var entropy_message_time_msec := -10000
 var puzzle_shift_done := false
 var key_shift_done := false
 var death_reload_pending := false
+var _pending_death_scene_path := MAIN_SCENE_PATH
+var run_root_fragments_collected := 0
+var run_enemies_killed := 0
+var run_rooms_cleared := 0
+var last_death_summary: Dictionary = {}
 
 var rooms: Dictionary = {}
 var room_order: Array[String] = []
@@ -126,6 +134,7 @@ func _ready() -> void:
 	_connect_player()
 	_setup_new_main_layer()
 	_build_dungeon()
+	_apply_kok_memory_start()
 	_update_key_ui()
 	_update_root_fragment_ui()
 	_refresh_objective()
@@ -292,6 +301,7 @@ func add_root_fragments(amount: int = 1, show_feedback: bool = true) -> int:
 	if safe_amount <= 0:
 		return root_fragments
 	root_fragments += safe_amount
+	run_root_fragments_collected += safe_amount
 	_update_root_fragment_ui()
 	if show_feedback:
 		show_message("Kök Parçası +%d" % safe_amount, 1.5)
@@ -533,6 +543,7 @@ func _get_player_weapon_manager() -> WeaponManager25D:
 
 
 func enemy_died(enemy_type: String, drop_position: Vector3, enemy: Node = null) -> void:
+	run_enemies_killed += 1
 	var root_chance := 0.45
 	var weapon_chance := 0.08
 	match enemy_type:
@@ -566,9 +577,13 @@ func enemy_died(enemy_type: String, drop_position: Vector3, enemy: Node = null) 
 
 
 func player_died() -> void:
-	if run_locked:
+	if run_locked or death_reload_pending:
 		return
 	run_locked = true
+	Engine.time_scale = 1.0
+	var dried_roots_gained := convert_root_fragments_on_death()
+	last_death_summary = _build_death_summary(dried_roots_gained)
+	_store_kok_memory()
 	var death_lines := [
 		"Kökler unutmaz. Adını da, düşüşünü de saklarlar.",
 		"Kökaltı bir nefes daha içti. Asha'nın nefesini.",
@@ -582,65 +597,142 @@ func player_died() -> void:
 		"Annen seni buraya göndermedi. Kökaltı seni çağırdı. Ve çağırmaya devam edecek.",
 	]
 	var lore: String = death_lines[randi() % death_lines.size()]
-	_show_death_screen(lore)
+	_show_death_screen(lore, last_death_summary)
 
 
-func _show_death_screen(lore: String) -> void:
+func _show_death_screen(lore: String, summary: Dictionary = {}) -> void:
+	if _active_death_screen and is_instance_valid(_active_death_screen):
+		return
 	var screen: CanvasLayer = DEATH_SCREEN_SCRIPT.new()
+	screen.process_mode = Node.PROCESS_MODE_ALWAYS
 	if screen.has_method("setup"):
-		screen.call("setup", lore)
-	screen.restart_requested.connect(_on_death_restart)
-	get_tree().current_scene.add_child(screen)
+		screen.call("setup", lore, summary)
+	if screen.has_signal("restart_requested"):
+		screen.connect("restart_requested", Callable(self, "_on_death_restart"), CONNECT_ONE_SHOT)
+	if screen.has_signal("exit_requested"):
+		screen.connect("exit_requested", Callable(self, "_on_death_exit"), CONNECT_ONE_SHOT)
+	var parent: Node = get_tree().current_scene if get_tree().current_scene else self
+	parent.add_child(screen)
 	_active_death_screen = screen
 	get_tree().paused = true
 
 
 func _on_death_restart() -> void:
-	print("[DEATH] Yeniden basla tetiklendi")
+	_request_death_scene_reload("restart", MAIN_SCENE_PATH)
+
+
+func _on_death_exit() -> void:
+	_request_death_scene_reload("menu", MAIN_MENU_SCENE_PATH)
+
+
+func _request_death_scene_reload(_reason: String, target_path: String = MAIN_SCENE_PATH) -> void:
+	if death_reload_pending:
+		return
+	death_reload_pending = true
+	_pending_death_scene_path = target_path
+	run_locked = true
+	Engine.time_scale = 1.0
+	get_tree().paused = false
 	if _active_death_screen and is_instance_valid(_active_death_screen):
 		_active_death_screen.queue_free()
-		_active_death_screen = null
-	get_tree().paused = false
-	Engine.time_scale = 1.0
-	_rebuild_scene.call_deferred()
+	_active_death_screen = null
+	call_deferred("_change_to_main_scene_after_death")
 
 
 func _rebuild_scene() -> void:
-	print("[DEATH] sahne elle yeniden kuruluyor")
-	var tree := get_tree()
-	var scene_res: PackedScene = load("res://scenes/main_2_5d.tscn")
-	if scene_res == null:
-		print("[DEATH] HATA: main_2_5d.tscn yuklenemedi")
-		return
-	var root := tree.root
-	var old_scene := tree.current_scene
-	# Eski sahneyi önce ağaçtan çıkar ki yeni oyuncu eski (kilitli) manager'a bağlanmasın
-	if old_scene and is_instance_valid(old_scene):
-		tree.current_scene = null
-		root.remove_child(old_scene)
-		old_scene.queue_free()
-	var new_scene := scene_res.instantiate()
-	root.add_child(new_scene)
-	tree.current_scene = new_scene
-	print("[DEATH] yeni sahne eklendi")
+	_request_death_scene_reload("legacy_rebuild", MAIN_SCENE_PATH)
 
 
 func _do_restart() -> void:
-	print("[DEATH] change_scene cagriliyor")
-	var err := get_tree().change_scene_to_file("res://scenes/main_2_5d.tscn")
-	print("[DEATH] change_scene sonuc kodu: ", err)
+	_request_death_scene_reload("legacy_restart", MAIN_SCENE_PATH)
 
 
 func _reload_run_after_death() -> void:
 	await get_tree().create_timer(restart_delay, true, false, true).timeout
 	if not is_inside_tree():
 		return
-	Engine.time_scale = 1.0
-	get_tree().paused = false
-	if not ResourceLoader.exists(MAIN_SCENE_PATH):
-		push_error("Death reload target missing: " + MAIN_SCENE_PATH)
+	_request_death_scene_reload("delayed_death", MAIN_SCENE_PATH)
+
+
+func _change_to_main_scene_after_death() -> void:
+	if not is_inside_tree():
 		return
-	get_tree().call_deferred("change_scene_to_file", MAIN_SCENE_PATH)
+	Engine.time_scale = 1.0
+	var tree := get_tree()
+	tree.paused = false
+	var target_path := _pending_death_scene_path if not _pending_death_scene_path.is_empty() else MAIN_SCENE_PATH
+	if not ResourceLoader.exists(target_path):
+		push_error("Death reload target missing: " + target_path)
+		death_reload_pending = false
+		return
+	var error := tree.change_scene_to_file(target_path)
+	if error != OK:
+		push_error("Death reload failed for %s. Error: %s" % [target_path, error])
+		death_reload_pending = false
+
+
+func _build_death_summary(dried_roots_gained: int) -> Dictionary:
+	return {
+		"main_layer": current_main_layer,
+		"micro_floor": current_micro_floor,
+		"total_micro_floors": total_micro_floors,
+		"rooms_cleared": run_rooms_cleared,
+		"enemies_killed": run_enemies_killed,
+		"root_fragments_collected": run_root_fragments_collected,
+		"dried_roots_gained": dried_roots_gained,
+	}
+
+
+func _store_kok_memory() -> void:
+	var death_room_id := current_room_id
+	if death_room_id.is_empty() and player:
+		death_room_id = _room_id_at_position(player.global_position)
+	if death_room_id.is_empty() or not rooms.has(death_room_id):
+		kok_memory_room_type = ""
+	else:
+		var room: Dictionary = rooms[death_room_id] as Dictionary
+		kok_memory_room_type = String(room.get("type", ""))
+	kok_memory_pending = true
+
+
+func _apply_kok_memory_start() -> void:
+	if not kok_memory_pending:
+		return
+	kok_memory_pending = false
+	root_fragments += 1
+	_update_root_fragment_ui()
+	var room_hint := _room_type_display_name(kok_memory_room_type)
+	var memory_text := "Kökaltı son düşüşünü hatırlıyor."
+	if not room_hint.is_empty():
+		memory_text += " Son iz: " + room_hint + "."
+	memory_text += " Kök Parçası +1"
+	show_lore_message(memory_text, 3.0)
+
+
+func _room_type_display_name(room_type: String) -> String:
+	match room_type:
+		"wake":
+			return "Uyanış Odası"
+		"fathers_map_room":
+			return "Babanın Haritası"
+		"root_tunnel":
+			return "Kök Tüneli"
+		"rat_nest":
+			return "Sıçan Yuvası"
+		"mushroom_cellar":
+			return "Mantar Mahzeni"
+		"stone_watch_room":
+			return "Taş Nöbet Odası"
+		"broken_shrine":
+			return "Kırık Sunak"
+		"loot_niche":
+			return "Ganimet Nişi"
+		"key_alcove":
+			return "Anahtar Oyuğu"
+		"forgotten_exit":
+			return "Unutulmuş Çıkış"
+		_:
+			return ""
 
 
 func is_run_locked() -> bool:
@@ -853,6 +945,7 @@ func _clear_room(room_id: String) -> void:
 	if _room_state(room_id) == ROOM_STATE_CLEARED:
 		return
 	_set_room_state(room_id, ROOM_STATE_CLEARED)
+	run_rooms_cleared += 1
 	reduce_entropy(1.0)
 	if _room_gates_are_closed(room_id):
 		_set_room_gates_open(room_id, true)

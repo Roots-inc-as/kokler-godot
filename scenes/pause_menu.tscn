@@ -71,7 +71,9 @@ func _on_restart_pressed() -> void:
 
 func _on_quit_pressed() -> void:
 	print(\">>> QUIT TIKLANDI\")
-	get_tree().quit()
+	get_tree().paused = false
+	Engine.time_scale = 1.0
+	get_tree().call_deferred(\"change_scene_to_file\", \"res://scenes/main_menu.tscn\")
 "
 
 [node name="PauseMenu" type="Control" unique_id=849025297]
@@ -122,4 +124,4 @@ text = "Yeniden Başla"
 
 [node name="QuitButton" type="Button" parent="ButtonContainer" unique_id=720960035]
 layout_mode = 2
-text = "Çıkış"
+text = "Ana Menüye Dön"

@@ -3,7 +3,10 @@ extends CanvasLayer
 signal resumed
 signal restart_requested
 
+const MAIN_MENU_SCENE_PATH := "res://scenes/main_menu.tscn"
+
 var _root_control: Control
+var _transition_pending := false
 
 
 func _build_ui() -> void:
@@ -55,7 +58,7 @@ func _build_ui() -> void:
 	vbox.add_child(restart_button)
 
 	var quit_button := Button.new()
-	quit_button.text = "Çıkış"
+	quit_button.text = "Ana Menüye Dön"
 	quit_button.custom_minimum_size = Vector2(280, 50)
 	quit_button.pressed.connect(_on_quit_pressed)
 	vbox.add_child(quit_button)
@@ -71,11 +74,19 @@ func _on_resume_pressed() -> void:
 
 
 func _on_restart_pressed() -> void:
+	if _transition_pending:
+		return
+	_transition_pending = true
 	restart_requested.emit()
 
 
 func _on_quit_pressed() -> void:
-	get_tree().quit()
+	if _transition_pending:
+		return
+	_transition_pending = true
+	get_tree().paused = false
+	Engine.time_scale = 1.0
+	get_tree().call_deferred("change_scene_to_file", MAIN_MENU_SCENE_PATH)
 
 
 func _input(event: InputEvent) -> void:
