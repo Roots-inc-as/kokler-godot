@@ -17,7 +17,7 @@ func set_active_layer(layer_index: int) -> void:
 	active_layer = layer_index
 
 
-func decorate_wall_body(wall_body: Node3D, target_size: Vector3, axis: String) -> bool:
+func decorate_wall_body(wall_body: Node3D, target_size: Vector3, axis: String, flip := false) -> bool:
 	if not enabled or wall_body == null:
 		return false
 	var packed := _load_model("wall")
@@ -27,7 +27,7 @@ func decorate_wall_body(wall_body: Node3D, target_size: Vector3, axis: String) -
 	var wrapper := Node3D.new()
 	wrapper.name = "KayKitWallVisuals"
 	wall_body.add_child(wrapper)
-	wrapper.rotation.y = 0.0 if axis == "x" else PI * 0.5
+	wrapper.rotation.y = (0.0 if axis == "x" else PI * 0.5) + (PI if flip else 0.0)
 
 	var first_instance := packed.instantiate() as Node3D
 	if first_instance == null:
@@ -65,7 +65,6 @@ func decorate_wall_body(wall_body: Node3D, target_size: Vector3, axis: String) -
 		_fit_instance(instance, bounds, model_scale, Vector3(module_center, 0.0, 0.0))
 
 	_tag_visual(wrapper)
-	_set_primitive_visual_visible(wall_body, false)
 	return true
 
 

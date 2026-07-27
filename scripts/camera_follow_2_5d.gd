@@ -4,7 +4,7 @@ extends Node3D
 @export var offset := Vector3(0.0, 16.5, 12.5)
 @export var follow_speed := 6.0
 @export var orthographic_size := 18.2
-@export var fixed_camera_rotation := Vector3(-55.0, 0.0, 0.0)
+@export var fixed_camera_rotation := Vector3(-50.0, 0.0, 0.0)
 
 @onready var camera: Camera3D = $Camera3D
 

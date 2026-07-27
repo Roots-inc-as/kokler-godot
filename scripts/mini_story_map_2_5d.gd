@@ -1838,10 +1838,12 @@ func _add_wall_with_opening(base_name: String, center: Vector3, size: Vector3, a
 
 func _add_room_wall_segment(node_name: String, position: Vector3, size: Vector3, axis: String, mat: Material, room_id: String) -> Node3D:
 	var wall_body: Node3D = _add_box(dungeon_root, node_name, position, size, mat, true)
+	# Modelin dokulu yüzü odaya baksın: güney/doğu duvarları 180° çevrilir
+	var flip := node_name.contains("north") or node_name.contains("west")
 	if _is_layer1_cave_room(room_id):
-		_layer1_cave_visuals.decorate_wall_body(wall_body, size, axis)
+		_layer1_cave_visuals.decorate_wall_body(wall_body, size, axis, flip)
 	elif _use_kaykit_walls():
-		_kaykit_wall_visuals.decorate_wall_body(wall_body, size, axis)
+		_kaykit_wall_visuals.decorate_wall_body(wall_body, size, axis, flip)
 	return wall_body
 
 
@@ -2670,8 +2672,8 @@ func _add_room_light(room: Dictionary) -> void:
 	var light := OmniLight3D.new()
 	light.name = String(room["id"]) + "_RoomLight"
 	light.shadow_enabled = false
-	light.omni_range = maxf(room_size.x, room_size.y) * 0.72
-	light.light_energy = 0.45
+	light.omni_range = maxf(room_size.x, room_size.y) * 1.05
+	light.light_energy = 0.7
 	light.light_color = Color(0.95, 0.68, 0.42)
 	match room_type:
 		"mushroom_cellar":

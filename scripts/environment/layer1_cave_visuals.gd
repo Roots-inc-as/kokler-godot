@@ -19,7 +19,7 @@ var enabled := true
 var _scene_cache: Dictionary = {}
 
 
-func decorate_wall_body(wall_body: Node3D, target_size: Vector3, axis: String) -> bool:
+func decorate_wall_body(wall_body: Node3D, target_size: Vector3, axis: String, flip := false) -> bool:
 	if not enabled or wall_body == null:
 		return false
 	var packed := _load_model("wall")
@@ -29,7 +29,7 @@ func decorate_wall_body(wall_body: Node3D, target_size: Vector3, axis: String) -
 	var wrapper := Node3D.new()
 	wrapper.name = "Layer1CaveWallVisuals"
 	wall_body.add_child(wrapper)
-	wrapper.rotation.y = 0.0 if axis == "x" else PI * 0.5
+	wrapper.rotation.y = (0.0 if axis == "x" else PI * 0.5) + (PI if flip else 0.0)
 
 	var first_instance := _instantiate_visual(packed)
 	if first_instance == null:
@@ -64,7 +64,6 @@ func decorate_wall_body(wall_body: Node3D, target_size: Vector3, axis: String) -
 		_fit_instance(instance, bounds, model_scale, Vector3(module_center, -0.04, 0.0))
 
 	_tag_visual(wrapper, "layer1_cave_wall_visual")
-	_set_primitive_wall_visible(wall_body, false)
 	return true
 
 
@@ -96,9 +95,9 @@ func decorate_floor(floor_visual: Node3D, target_size: Vector3) -> bool:
 	var tile_width := target_size.x / float(x_count)
 	var tile_depth := target_size.z / float(z_count)
 	var model_scale := Vector3(
-		tile_width / bounds.size.x,
+		tile_width / bounds.size.x * 1.06,
 		FLOOR_VISUAL_THICKNESS / bounds.size.y,
-		tile_depth / bounds.size.z
+		tile_depth / bounds.size.z * 1.06
 	)
 
 	var tile_index := 0
@@ -113,15 +112,16 @@ func decorate_floor(floor_visual: Node3D, target_size: Vector3) -> bool:
 				wrapper.add_child(instance)
 			var tile_center := Vector3(
 				-target_size.x * 0.5 + tile_width * (float(x_index) + 0.5),
-				0.08,
+				0.03,
 				-target_size.z * 0.5 + tile_depth * (float(z_index) + 0.5)
 			)
 			_fit_instance(instance, bounds, model_scale, tile_center)
+			for mesh_node in _mesh_nodes(instance):
+				mesh_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			tile_index += 1
 
 	_tag_visual(wrapper, "layer1_cave_floor_visual")
-	if floor_visual is GeometryInstance3D:
-		(floor_visual as GeometryInstance3D).visible = false
+	
 	return true
 
 
@@ -133,6 +133,7 @@ func add_entrance(
 	height: float,
 	thickness: float
 ) -> bool:
+	return false
 	var target_size := Vector3(
 		opening_width,
 		minf(height, WALL_VISUAL_HEIGHT),
@@ -146,9 +147,10 @@ func add_entrance(
 		0.0 if axis == "x" else PI * 0.5,
 		target_size,
 		"layer1_cave_entrance_visual"
+	
 	)
-
-
+# Kapı görseli garip durduğu için devre dışı — geçiş boşluğu açık kalır
+	return false
 func add_corner(parent: Node, world_center: Vector3, yaw: float, height: float, inner := false) -> bool:
 	var visual_height := minf(height, WALL_VISUAL_HEIGHT)
 	var target_size := Vector3(0.68, visual_height, 0.68)
