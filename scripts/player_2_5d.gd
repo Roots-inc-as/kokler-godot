@@ -26,6 +26,7 @@ signal died
 @export var charged_knockback_multiplier := 1.5
 @export var invulnerable_time := 0.45
 @export var ground_y := 0.0
+@export var enable_debug_shortcuts := false
 
 @onready var model: Node3D = $Model
 @onready var attack_area: Area3D = $Model/AttackArea
@@ -75,6 +76,7 @@ var _base_captured := false
 var _is_charged_swing: bool = false
 var _pending_charged_damage: int = 0
 var _pending_charged_knockback: float = 0.0
+var _hit_pause_token := 0
 
 
 func _ready() -> void:
@@ -128,20 +130,7 @@ func _physics_process(delta: float) -> void:
 		if not (_active_inventory_screen and is_instance_valid(_active_inventory_screen)) and not _ignore_pause_key:
 			_toggle_pause_menu()
 	_ignore_pause_key = false
-	# TEST: B tuşu → doğrudan boss (son) mikro katına ışınlan
-	if Input.is_physical_key_pressed(KEY_B) and not _debug_boss_key_held:
-		_debug_boss_key_held = true
-		if story_manager and story_manager.has_method("debug_jump_to_boss"):
-			story_manager.call("debug_jump_to_boss")
-	elif not Input.is_physical_key_pressed(KEY_B):
-		_debug_boss_key_held = false
-		# TEST: N tuşu → ana katman geçişi (fade) test
-	if Input.is_physical_key_pressed(KEY_N) and not _debug_next_key_held:
-		_debug_next_key_held = true
-		if story_manager and story_manager.has_method("debug_next_layer"):
-			story_manager.call("debug_next_layer")
-	elif not Input.is_physical_key_pressed(KEY_N):
-		_debug_next_key_held = false
+	_handle_debug_shortcuts()
 	# Sol tık (slot 1)
 	if Input.is_action_just_pressed("attack"):
 		_begin_charge(1)
@@ -486,7 +475,7 @@ func _get_current_weapon() -> WeaponData:
 func _handle_weapon_switch_input() -> void:
 	if not weapon_manager:
 		return
-	for i in range(5):
+	for i in range(2):
 		if Input.is_action_just_pressed(StringName("weapon_%d" % [i + 1])):
 			weapon_manager.switch_to_slot(i + 1)
 
@@ -606,9 +595,9 @@ func _ensure_input_actions() -> void:
 	_add_mouse_action("attack", MOUSE_BUTTON_LEFT)
 	_add_key_action("attack_secondary", KEY_K)
 	_add_mouse_action("attack_secondary", MOUSE_BUTTON_RIGHT)
-	for i in range(5):
+	for i in range(2):
 		_add_key_action(StringName("weapon_%d" % [i + 1]), KEY_1 + i)
-		_add_key_action("inventory", KEY_I)
+	_add_key_action("inventory", KEY_I)
 
 
 func _add_key_action(action_name: StringName, keycode: int) -> void:
@@ -661,9 +650,12 @@ func _trigger_hit_flash() -> void:
 
 
 func _hit_pause(duration: float = 0.06, scale: float = 0.05) -> void:
+	_hit_pause_token += 1
+	var token := _hit_pause_token
 	Engine.time_scale = scale
 	await get_tree().create_timer(duration, true, false, true).timeout
-	Engine.time_scale = 1.0
+	if token == _hit_pause_token:
+		Engine.time_scale = 1.0
 
 const INVENTORY_SCREEN_SCRIPT := preload("res://scripts/inventory_screen.gd")
 
@@ -671,6 +663,8 @@ var _active_inventory_screen: CanvasLayer
 var _ignore_inventory_key := false
 
 func _toggle_inventory_screen() -> void:
+	if _active_pause_menu and is_instance_valid(_active_pause_menu):
+		return
 	# Zaten açıksa kapat
 	if _active_inventory_screen and is_instance_valid(_active_inventory_screen):
 		_active_inventory_screen.queue_free()
@@ -689,6 +683,7 @@ func _toggle_inventory_screen() -> void:
 func _on_inventory_screen_closed() -> void:
 	_active_inventory_screen = null
 	get_tree().paused = false
+	Engine.time_scale = 1.0
 	_ignore_inventory_key = true
 	
 	# ─── PAUSE MENÜ ───
@@ -702,6 +697,8 @@ var _debug_next_key_held := false
 var _debug_layer_key_held := false
 
 func _toggle_pause_menu() -> void:
+	if _active_inventory_screen and is_instance_valid(_active_inventory_screen):
+		return
 	if _active_pause_menu and is_instance_valid(_active_pause_menu):
 		_active_pause_menu.queue_free()
 		_active_pause_menu = null
@@ -718,6 +715,7 @@ func _toggle_pause_menu() -> void:
 func _on_pause_menu_resumed() -> void:
 	_active_pause_menu = null
 	get_tree().paused = false
+	Engine.time_scale = 1.0
 	_ignore_pause_key = true
 	
 
@@ -725,7 +723,27 @@ func _on_pause_menu_resumed() -> void:
 func _on_pause_menu_restart() -> void:
 	_active_pause_menu = null
 	get_tree().paused = false
-	get_tree().reload_current_scene()
+	Engine.time_scale = 1.0
+	get_tree().call_deferred("reload_current_scene")
+
+
+func _handle_debug_shortcuts() -> void:
+	if not (OS.is_debug_build() and enable_debug_shortcuts):
+		_debug_boss_key_held = Input.is_physical_key_pressed(KEY_B)
+		_debug_next_key_held = Input.is_physical_key_pressed(KEY_N)
+		return
+	if Input.is_physical_key_pressed(KEY_B) and not _debug_boss_key_held:
+		_debug_boss_key_held = true
+		if story_manager and story_manager.has_method("debug_jump_to_boss"):
+			story_manager.call("debug_jump_to_boss")
+	elif not Input.is_physical_key_pressed(KEY_B):
+		_debug_boss_key_held = false
+	if Input.is_physical_key_pressed(KEY_N) and not _debug_next_key_held:
+		_debug_next_key_held = true
+		if story_manager and story_manager.has_method("debug_next_layer"):
+			story_manager.call("debug_next_layer")
+	elif not Input.is_physical_key_pressed(KEY_N):
+		_debug_next_key_held = false
 
 # ─── CHARGE SİSTEMİ ───
 

@@ -58,6 +58,7 @@ func _ready() -> void:
 	_health_bar.set_health(hp, max_hp)
 	if pulse_visual:
 		pulse_visual.visible = false
+	_ensure_navigation_agent()
 
 
 func _physics_process(delta: float) -> void:
@@ -135,17 +136,6 @@ func _physics_process(delta: float) -> void:
 
 	if pulse_visual and pulse_visual.visible:
 		pulse_visual.scale = pulse_visual.scale.lerp(Vector3(3.1, 0.04, 3.1), delta * 8.0)
-		
-		# NavigationAgent3D ekle
-	nav_agent = NavigationAgent3D.new()
-	nav_agent.name = "NavAgent"
-	nav_agent.path_desired_distance = 0.5
-	nav_agent.target_desired_distance = 0.5
-	nav_agent.radius = 0.2
-	nav_agent.height = 1.2
-	nav_agent.avoidance_enabled = false
-	nav_agent.path_max_distance = 200
-	add_child(nav_agent)
 
 
 func take_damage(amount: int) -> void:
@@ -280,8 +270,8 @@ func _update_state(delta: float) -> void:
 				state = State.IDLE
 
 func _navigation_movement(destination: Vector3) -> Vector3:
-	if nav_agent == null:
-		return Vector3.ZERO
+	if nav_agent == null or not is_instance_valid(nav_agent):
+		return _direct_movement(destination)
 	
 	nav_update_timer -= get_physics_process_delta_time()
 	if nav_update_timer <= 0.0:
@@ -289,11 +279,33 @@ func _navigation_movement(destination: Vector3) -> Vector3:
 		nav_update_timer = 0.3
 	
 	if nav_agent.is_navigation_finished():
-		return Vector3.ZERO
+		return _direct_movement(destination)
 	
 	var next_pos := nav_agent.get_next_path_position()
 	var dir := next_pos - global_position
 	dir.y = 0.0
 	if dir.length() > 0.05:
 		return dir.normalized()
-	return Vector3.ZERO
+	return _direct_movement(destination)
+
+
+func _ensure_navigation_agent() -> void:
+	nav_agent = get_node_or_null("NavAgent") as NavigationAgent3D
+	if nav_agent == null:
+		nav_agent = NavigationAgent3D.new()
+		nav_agent.name = "NavAgent"
+		add_child(nav_agent)
+	nav_agent.path_desired_distance = 0.5
+	nav_agent.target_desired_distance = 0.5
+	nav_agent.radius = 0.2
+	nav_agent.height = 1.2
+	nav_agent.avoidance_enabled = false
+	nav_agent.path_max_distance = 200.0
+
+
+func _direct_movement(destination: Vector3) -> Vector3:
+	var dir := destination - global_position
+	dir.y = 0.0
+	if dir.length_squared() <= 0.0025:
+		return Vector3.ZERO
+	return dir.normalized()

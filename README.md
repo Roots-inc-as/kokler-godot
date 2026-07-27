@@ -77,15 +77,33 @@ Mevcut teknik yön:
 - Hitbox, pickup, trigger sistemleri: `Area3D`
 - UI: `CanvasLayer / Control`
 - Görseller: primitive mesh + basit materyaller
-- Ana sahne: `res://scenes/main_2_5d.tscn`
+- Ana akış: `res://scenes/main_menu.tscn` → `res://scenes/main_2_5d.tscn`
 
 Eski 2D prototip artık aktif değildir.
 
 ---
 
-## Ana sahne
+## Görsel temel
 
-Play / F5 şu sahneyi çalıştırmalıdır:
+Ortam dili artık küçük bir paylaşımlı temel üzerinden ilerlemelidir:
+
+- Paylaşımlı materyaller: `res://environment/materials/`
+- Oda görsel profilleri: `res://data/room_visual_profiles/`
+- Prop kategori notları: `res://environment/PROP_CATEGORIES.md`
+
+Bu katman sadece görsel sunumu yönlendirir. Oda grafiği, düşmanlar, anahtar, çıkış ve softlock güvenliği hâlâ mevcut 2.5D oyun sistemlerinde kalır.
+
+---
+
+## Ana sahne akışı
+
+Play / F5 şu menü sahnesini çalıştırmalıdır:
+
+```text
+res://scenes/main_menu.tscn
+```
+
+Menüdeki `Yeni Koşu` butonu aktif oyun sahnesini açar:
 
 ```text
 res://scenes/main_2_5d.tscn
@@ -100,7 +118,7 @@ Project → Project Settings → Application → Run → Main Scene
 Burada ana sahne şu olmalı:
 
 ```text
-res://scenes/main_2_5d.tscn
+res://scenes/main_menu.tscn
 ```
 
 Eğer eski `main.tscn` açılmaya çalışırsa bu yanlıştır. Eski 2D dosyalar artık aktif oyun hattının parçası değil.
@@ -111,8 +129,9 @@ Eğer eski `main.tscn` açılmaya çalışırsa bu yanlıştır. Eski 2D dosyala
 
 1. Godot 4’ü aç.
 2. Bu projeyi import et.
-3. Ana sahnenin `main_2_5d.tscn` olduğundan emin ol.
+3. Ana sahnenin `main_menu.tscn` olduğundan emin ol.
 4. Play / F5’e bas.
+5. Menüden `Yeni Koşu` seç.
 
 Yerel proje yolu örnek:
 
@@ -128,8 +147,11 @@ C:/Users/Berat Sağır/Documents/Projects/kokler_godot
 |---|---|
 | Hareket | W / A / S / D |
 | Dash | Space |
-| Saldırı | J veya sol mouse |
-| Silah değiştirme | 1 - 5 |
+| Slot 1 saldırı | J veya sol mouse |
+| Slot 2 saldırı | K veya sağ mouse |
+| Silah slotu seçme | 1 - 2 |
+| Envanter | I |
+| Kök Sunağı / etkileşim | E |
 | Sahneyi çalıştırma | F5 |
 | Açık sahneyi test etme | F6 |
 
@@ -292,7 +314,7 @@ kokler_godot/
 └─ icon.svg
 ```
 
-Dosya isimleri geliştirme sırasında değişebilir. Önemli olan aktif sahnenin `main_2_5d.tscn` olmasıdır.
+Dosya isimleri geliştirme sırasında değişebilir. Önemli olan F5 akışının `main_menu.tscn`, aktif oyun sahnesinin ise `main_2_5d.tscn` olmasıdır.
 
 ---
 
@@ -360,7 +382,7 @@ AI küçük ve net görevlerle kullanılmalı.
 ```text
 Loot pickup sistemini mevcut 2.5D yapıya entegre et.
 Sadece gerekli dosyalara dokun.
-main_2_5d.tscn aktif kalsın.
+F5 akışını main_menu.tscn → main_2_5d.tscn olarak koru.
 ```
 
 Kötü görev örneği:

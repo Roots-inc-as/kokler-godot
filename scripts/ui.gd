@@ -34,11 +34,12 @@ func _ready() -> void:
 	set_controls_help_text(_default_controls_help_text())
 	message_label.visible = false
 	victory_panel.visible = false
-	var upgrades_label: Label
 
 
 func _ensure_upgrades_label() -> void:
-	if get_node_or_null("UpgradesLabel"):
+	var existing := get_node_or_null("UpgradesLabel") as Label
+	if existing:
+		upgrades_label = existing
 		return
 	upgrades_label = Label.new()
 	upgrades_label.name = "UpgradesLabel"

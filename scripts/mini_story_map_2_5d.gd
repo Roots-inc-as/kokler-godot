@@ -31,6 +31,15 @@ const ROOM_STATE_SHIFTED := "shifted"
 const MAIN_SCENE_PATH := "res://scenes/main_2_5d.tscn"
 const MAIN_MENU_SCENE_PATH := "res://scenes/main_menu.tscn"
 const NORMAL_ROOM_GATE_CLOSE_CHANCE := 0.20
+const ROOM_VISUAL_PROFILE_PATHS: Dictionary = {
+	"root_tunnel": "res://data/room_visual_profiles/root_tunnel.tres",
+	"rat_nest": "res://data/room_visual_profiles/rat_nest.tres",
+	"mushroom_cellar": "res://data/room_visual_profiles/mushroom_cellar.tres",
+	"stone_watch_room": "res://data/room_visual_profiles/stone_watch_room.tres",
+	"map_room": "res://data/room_visual_profiles/map_room.tres",
+	"broken_shrine": "res://data/room_visual_profiles/broken_shrine.tres",
+	"corrupted_room": "res://data/room_visual_profiles/corrupted_room.tres",
+}
 
 static var dried_roots_bank := 0
 static var kok_memory_pending := false
@@ -83,6 +92,7 @@ var _boss_required := false
 var _boss_defeated := false
 var _active_death_screen: CanvasLayer
 var _active_upgrade_screen: CanvasLayer
+var _active_keep_card_screen: CanvasLayer
 var _layer_cards := []
 var puzzle_message_time_msec := -10000
 var current_room_id := ""
@@ -111,6 +121,7 @@ var blocking_prop_positions: Dictionary = {}
 var discovered_rooms: Dictionary = {}
 var shown_lore_messages: Dictionary = {}
 var mats: Dictionary = {}
+var room_visual_profiles: Dictionary = {}
 
 var start_cell := Vector2i.ZERO
 var key_cell := Vector2i.ZERO
@@ -131,6 +142,7 @@ func _ready() -> void:
 	else:
 		randomize()
 	_build_materials()
+	_load_room_visual_profiles()
 	_connect_player()
 	_setup_new_main_layer()
 	_build_dungeon()
@@ -183,12 +195,16 @@ func try_exit() -> void:
 		
 		
 func _show_keep_card_screen() -> void:
-	if _layer_cards.is_empty():
+	if _layer_cards.is_empty() or _overlay_is_active():
 		return
 	var screen: CanvasLayer = KEEP_CARD_SCREEN_SCRIPT.new()
 	if screen.has_method("setup"):
 		screen.call("setup", _layer_cards)
-	get_tree().current_scene.add_child(screen)
+	var scene_root := get_tree().current_scene
+	if scene_root == null:
+		return
+	scene_root.add_child(screen)
+	_active_keep_card_screen = screen
 	get_tree().paused = true
 	var kept_id: String = await screen.kept
 	if player and player.has_method("keep_only_upgrades"):
@@ -197,14 +213,21 @@ func _show_keep_card_screen() -> void:
 		else:
 			player.call("keep_only_upgrades", [kept_id])
 	_layer_cards = [] if kept_id == "" else [kept_id]
+	_active_keep_card_screen = null
 	get_tree().paused = false
+	Engine.time_scale = 1.0
 		
 		
 func _show_upgrade_screen() -> void:
+	if _overlay_is_active():
+		return
 	var screen: CanvasLayer = UPGRADE_SCREEN_SCRIPT.new()
 	if screen.has_method("setup"):
 		screen.call("setup")
-	get_tree().current_scene.add_child(screen)
+	var scene_root := get_tree().current_scene
+	if scene_root == null:
+		return
+	scene_root.add_child(screen)
 	_active_upgrade_screen = screen
 	get_tree().paused = true
 	var chosen_id: String = await screen.upgrade_chosen
@@ -213,6 +236,17 @@ func _show_upgrade_screen() -> void:
 		_layer_cards.append(chosen_id)
 	_active_upgrade_screen = null
 	get_tree().paused = false
+	Engine.time_scale = 1.0
+
+
+func _overlay_is_active() -> bool:
+	return (
+		run_locked
+		or death_reload_pending
+		or (_active_death_screen != null and is_instance_valid(_active_death_screen))
+		or (_active_upgrade_screen != null and is_instance_valid(_active_upgrade_screen))
+		or (_active_keep_card_screen != null and is_instance_valid(_active_keep_card_screen))
+	)
 		
 func _create_fade_layer() -> ColorRect:
 	var layer := CanvasLayer.new()
@@ -1632,7 +1666,7 @@ func _add_room(room_id: String) -> void:
 	var room_type: String = room["type"]
 	var floor_mat: Material = _floor_material_for_type(room_type)
 	_add_box(dungeon_root, room_id + "_floor", Vector3(center.x, -0.08, center.z), Vector3(size.x, 0.16, size.y), floor_mat)
-	_add_room_walls(room_id, center, size, room["openings"] as Array)
+	_add_room_walls(room_id, center, size, room["openings"] as Array, room_type)
 	_add_layer_corner_decor(room)
 
 
@@ -1654,6 +1688,12 @@ func _add_layer_corner_decor(room: Dictionary) -> void:
 
 
 func _floor_material_for_type(room_type: String) -> Material:
+	var layer_index := clampi(current_main_layer, 1, 4)
+	if layer_index >= 2:
+		return _mat("floor_layer%d" % layer_index)
+	var profile_floor: Material = _room_profile_material(room_type, "floor_material")
+	if profile_floor != null:
+		return profile_floor
 	match room_type:
 		"mushroom_cellar":
 			return _mat("floor_green")
@@ -1664,20 +1704,21 @@ func _floor_material_for_type(room_type: String) -> Material:
 		"rat_nest":
 			return _mat("floor_root")
 		_:
-			var idx := clampi(current_main_layer, 1, 4)
-			if idx >= 2:
-				return _mat("floor_layer%d" % idx)
 			return _mat("floor")
 
 
-# Ana katmana göre duvar materyali seç (1-4)
-func _wall_material() -> Material:
-	var idx := clampi(current_main_layer, 1, 4)
-	return _mat("wall_layer%d" % idx)
+func _wall_material_for_type(room_type: String) -> Material:
+	var layer_index := clampi(current_main_layer, 1, 4)
+	if layer_index >= 2:
+		return _mat("wall_layer%d" % layer_index)
+	var profile_wall: Material = _room_profile_material(room_type, "wall_material")
+	if profile_wall != null:
+		return profile_wall
+	return _mat("wall_layer1")
 
 
-func _add_room_walls(room_id: String, center: Vector3, size: Vector2, openings: Array) -> void:
-	var wall_mat: Material = _wall_material()
+func _add_room_walls(room_id: String, center: Vector3, size: Vector2, openings: Array, room_type: String) -> void:
+	var wall_mat: Material = _wall_material_for_type(room_type)
 	var north := Vector3(center.x, WALL_HEIGHT * 0.5, center.z - size.y * 0.5)
 	var south := Vector3(center.x, WALL_HEIGHT * 0.5, center.z + size.y * 0.5)
 	var west := Vector3(center.x - size.x * 0.5, WALL_HEIGHT * 0.5, center.z)
@@ -2837,12 +2878,13 @@ func _add_sphere(parent: Node, node_name: String, position: Vector3, radius: flo
 
 func _build_materials() -> void:
 	mats = {
-		"floor": _make_material(Color(0.18, 0.135, 0.09)),
-		"floor_root": _make_material(Color(0.16, 0.105, 0.07)),
-		"floor_cold": _make_material(Color(0.18, 0.18, 0.16)),
-		"floor_green": _make_material(Color(0.13, 0.17, 0.13)),
+		"floor": _load_material("res://environment/materials/mat_soil_dark.tres", Color(0.13, 0.09, 0.055)),
+		"floor_root": _load_material("res://environment/materials/mat_soil_damp.tres", Color(0.105, 0.075, 0.055)),
+		"floor_cold": _load_material("res://environment/materials/mat_stone_corrupted.tres", Color(0.19, 0.19, 0.18)),
+		"floor_green": _load_material("res://environment/materials/mat_fungus_base.tres", Color(0.31, 0.23, 0.27)),
 		"floor_crack": _make_material(Color(0.065, 0.043, 0.03)),
-		"wall": _make_material(Color(0.085, 0.065, 0.05)),
+		"wall": _load_material("res://environment/materials/mat_stone_base.tres", Color(0.25, 0.235, 0.205)),
+		# Texture hooks are optional; missing assets keep these flat-color fallbacks.
 		"wall_layer1": _make_wall_material(Color(0.10, 0.075, 0.055), "res://textures/wall_layer1.png"),
 		"wall_layer2": _make_wall_material(Color(0.17, 0.17, 0.185), "res://textures/wall_layer2.png"),
 		"wall_layer3": _make_wall_material(Color(0.075, 0.12, 0.065), "res://textures/wall_layer3.png"),
@@ -2852,25 +2894,82 @@ func _build_materials() -> void:
 		"floor_layer4": _make_material(Color(0.07, 0.05, 0.09)),
 		"vein_glow": _make_material(Color(0.30, 0.16, 0.42), Color(0.55, 0.25, 0.85), 0.9),
 		"wall_dark": _make_material(Color(0.045, 0.035, 0.03)),
-		"stone": _make_material(Color(0.31, 0.29, 0.25)),
-		"white_stone": _make_material(Color(0.70, 0.70, 0.64)),
-		"root": _make_material(Color(0.20, 0.10, 0.055)),
-		"pressure_plate": _make_material(Color(0.36, 0.22, 0.11), Color(0.28, 0.14, 0.04), 0.22),
-		"amber": _make_material(Color(0.86, 0.43, 0.13), Color(0.8, 0.28, 0.06), 0.6),
-		"wood": _make_material(Color(0.25, 0.14, 0.08)),
+		"stone": _load_material("res://environment/materials/mat_stone_base.tres", Color(0.25, 0.235, 0.205)),
+		"white_stone": _load_material("res://environment/materials/mat_stone_pale.tres", Color(0.62, 0.60, 0.53)),
+		"root": _load_material("res://environment/materials/mat_root_dry.tres", Color(0.18, 0.095, 0.055)),
+		"pressure_plate": _load_material("res://environment/materials/mat_root_memory.tres", Color(0.26, 0.13, 0.085), Color(0.22, 0.09, 0.035), 0.18),
+		"amber": _make_material(Color(0.72, 0.42, 0.16), Color(0.55, 0.24, 0.06), 0.32),
+		"wood": _load_material("res://environment/materials/mat_wood_old.tres", Color(0.22, 0.14, 0.085)),
 		"coal": _make_material(Color(0.05, 0.045, 0.04)),
 		"bone": _make_material(Color(0.63, 0.56, 0.43)),
-		"parchment": _make_material(Color(0.62, 0.52, 0.36)),
+		"parchment": _load_material("res://environment/materials/mat_parchment_dirty.tres", Color(0.54, 0.46, 0.32)),
 		"ink": _make_material(Color(0.09, 0.06, 0.035)),
-		"key": _make_material(Color(0.76, 0.54, 0.18), Color(0.35, 0.22, 0.05), 0.35),
-		"crate": _make_material(Color(0.29, 0.20, 0.14)),
+		"key": _load_material("res://environment/materials/mat_brass_dull.tres", Color(0.55, 0.40, 0.18), Color(0.26, 0.17, 0.05), 0.18),
+		"crate": _load_material("res://environment/materials/mat_wood_old.tres", Color(0.22, 0.14, 0.085)),
 		"house": _make_material(Color(0.40, 0.39, 0.36)),
 		"mushroom_stem": _make_material(Color(0.70, 0.60, 0.52)),
-		"mushroom_cap": _make_material(Color(0.50, 0.16, 0.22)),
-		"fungus_stone": _make_material(Color(0.27, 0.18, 0.22)),
-		"lumen_glow": _make_material(Color(0.33, 0.82, 0.68), Color(0.22, 0.82, 0.70), 0.85),
-		"exit_glow": _make_material(Color(0.75, 0.95, 0.82, 0.62), Color(0.55, 0.95, 0.75), 0.8),
+		"mushroom_cap": _make_material(Color(0.43, 0.18, 0.23)),
+		"fungus_stone": _load_material("res://environment/materials/mat_fungus_base.tres", Color(0.31, 0.23, 0.27)),
+		"lumen_glow": _make_material(Color(0.28, 0.58, 0.50), Color(0.16, 0.48, 0.42), 0.36),
+		"exit_glow": _make_material(Color(0.65, 0.78, 0.68, 0.62), Color(0.36, 0.62, 0.48), 0.48),
 	}
+
+
+func _load_room_visual_profiles() -> void:
+	room_visual_profiles.clear()
+	for room_type_variant in ROOM_VISUAL_PROFILE_PATHS.keys():
+		var room_type := String(room_type_variant)
+		var path := String(ROOM_VISUAL_PROFILE_PATHS[room_type])
+		if not ResourceLoader.exists(path):
+			continue
+		var resource: Resource = ResourceLoader.load(path)
+		var profile := resource as Resource
+		if profile != null:
+			room_visual_profiles[room_type] = profile
+
+
+func _room_profile_material(room_type: String, property_name: StringName) -> Material:
+	var profile := _room_visual_profile_for_type(room_type)
+	if profile == null:
+		return null
+	var mat: Material = profile.get(property_name) as Material
+	return mat
+
+
+func _room_visual_profile_for_type(room_type: String) -> Resource:
+	var profile_key := _visual_profile_key_for_type(room_type)
+	if room_visual_profiles.has(profile_key):
+		return room_visual_profiles[profile_key] as Resource
+	return null
+
+
+func _visual_profile_key_for_type(room_type: String) -> String:
+	match room_type:
+		"wake", "root_tunnel":
+			return "root_tunnel"
+		"fathers_map_room":
+			return "map_room"
+		"rat_nest":
+			return "rat_nest"
+		"mushroom_cellar":
+			return "mushroom_cellar"
+		"stone_watch_room":
+			return "stone_watch_room"
+		"broken_shrine", "key_alcove", "sealed_white_door", "forgotten_exit":
+			return "broken_shrine"
+		"shifting_root_gate":
+			return "corrupted_room"
+		_:
+			return "root_tunnel"
+
+
+func _load_material(path: String, fallback_color: Color, emission := Color.BLACK, emission_energy := 0.0) -> Material:
+	if ResourceLoader.exists(path):
+		var resource: Resource = ResourceLoader.load(path)
+		var mat: Material = resource as Material
+		if mat != null:
+			return mat
+	return _make_material(fallback_color, emission, emission_energy)
 
 
 func _mat(id: String) -> Material:
