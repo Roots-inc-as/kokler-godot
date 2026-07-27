@@ -34,27 +34,19 @@ Ana his şu:
 
 ## Şu anki durum
 
-Aktif sürüm:
+Bu depo, **Godot 4.6 üzerinde çalışan güncel geliştirme build’idir**. Ayrı bir semantik oyun sürümü ilan etmez.
 
-```text
-KÖKLER v2 Prototype
-```
+Mevcut oynanış omurgası:
 
-Bu sürümde amaç, erken oynanış omurgasını kurmak:
-
-- 2.5D Godot sahnesi
-- hareket ve dash
-- yakın saldırı
-- farklı silahlar
-- silah değiştirme
-- düşmanlar
-- düşman can barları
-- loot sistemi
-- Kök Parçası toplama
-- anahtar / çıkış akışı
-- temel dungeon yapısı
-- minimap temeli
-- oda ve keşif akışını geliştirme
+- 2.5D ana menü ve koşu akışı
+- hareket, dash, combo ve charged attack
+- en fazla iki aktif silah slotu; yakın ve menzilli saldırılar
+- prosedürel odalar, değişken koridorlar ve oda-temizleme ödülleri
+- dört ana katman, mikro katlar, anahtar/çıkış ilerlemesi ve boss karşılaşmaları
+- düşman can barları, loot ve Kök Parçaları
+- Kök Sunakları ve koşu içi harcama seçenekleri
+- keşif/shift durumlarını gösteren minimap
+- upgrade kartları, envanter, pause ve ölüm özeti
 
 Görsel taraf hâlâ erken aşamada. Modeller ve çevre çoğunlukla primitive meshlerden oluşuyor. Ama hedef, assetsiz bile oyunun atmosferini ve sistemlerini anlaşılır hale getirmek.
 
@@ -65,7 +57,7 @@ Görsel taraf hâlâ erken aşamada. Modeller ve çevre çoğunlukla primitive m
 Proje:
 
 ```text
-Godot 4.x
+Godot 4.6
 GDScript
 2.5D / 3D sahne
 CanvasLayer / Control UI
@@ -92,6 +84,8 @@ Ortam dili artık küçük bir paylaşımlı temel üzerinden ilerlemelidir:
 - Prop kategori notları: `res://environment/PROP_CATEGORIES.md`
 
 Bu katman sadece görsel sunumu yönlendirir. Oda grafiği, düşmanlar, anahtar, çıkış ve softlock güvenliği hâlâ mevcut 2.5D oyun sistemlerinde kalır.
+
+Katman duvarları için `res://textures/wall_layer1.png` ile `wall_layer4.png` arasında dört isteğe bağlı texture hook’u vardır. Bu dosyalar şu anda depoda bulunmaz; oyun güvenli biçimde düz-renk materyallere düşer. Dokulu duvarların şu anda görünür olduğu varsayılmamalıdır.
 
 ---
 
@@ -170,7 +164,7 @@ C:/Users/Berat Sağır/Documents/Projects/kokler_godot
 
 ### Silahlar
 
-Şu anki yapı basit bir silah envanteri mantığına dayanıyor.
+Şu anki yapı en fazla iki aktif silah slotuna dayanıyor. Slotlar `1` ve `2` ile seçilir; sol/J ve sağ/K saldırıları ilgili slotu kullanır.
 
 Mevcut / hedeflenen silah tipleri:
 
@@ -205,21 +199,9 @@ Kök Parçaları şu an koşu içi değer olarak kullanılıyor. Kalıcı meta-p
 
 ### Dungeon / Oda Sistemi
 
-Oyun şu an tek bir erken kat üzerinde ilerliyor:
+Koşu dört ana katman ve her katmandaki prosedürel mikro katlar üzerinden ilerler. Oda grafiği start, key ve exit erişilebilirliğini korur; savaş odaları temizlenince hedef, minimap durumu ve tek seferlik ödül akışı güncellenir. Katman geçişleri ayrı zemin/duvar renkleri, köşe dekorları ve boss karşılaşmalarıyla ayrılır.
 
-```text
-KAT I — Kök Tüneli
-```
-
-Hedeflenen his:
-
-- toprak altı
-- köklerle sarılmış odalar
-- eski insan izleri
-- kapalı / boğucu ama okunabilir mekan
-- ileride alt / üst katlar eklenebilecek bir yapı
-
-Dungeon sistemi hâlâ geliştiriliyor. Oda ritmi, koridor uzunlukları, minimap, değişen labirent ve keşif yapısı üzerinde çalışılacak.
+İlk katmanın görsel kimliği hâlâ `KAT I — Kök Tüneli` etrafındadır: toprak, kökler, eski insan izleri ve okunabilir fakat baskılı yeraltı mekanları.
 
 ---
 
@@ -402,10 +384,6 @@ Bunlar daha sonra:
 - tam save sistemi
 - meta-progression kampı
 - shop
-- boss
-- tam item kart sistemi
-- full minimap polish
-- tam procedural floor sistemi
 - gelişmiş animasyon sistemi
 - dış asset paketi
 - Steam/export işleri
@@ -416,16 +394,7 @@ Bunlar daha sonra:
 
 ## Yakın hedefler
 
-Sıradaki mantıklı işler:
-
-1. Oda ve koridor ritmini düzeltmek
-2. Keşfedildikçe açılan minimap’i geliştirmek
-3. Değişen labirent sisteminin temelini atmak
-4. Değişen odaları minimap’te tekrar `?` yapmak
-5. Genel görsel iskeleti iyileştirmek
-6. Düşman animasyonlarını daha okunur yapmak
-7. Hikâyeyi oda içine daha doğal yerleştirmek
-8. Oda içi puzzle / maze mantığını erken prototip olarak eklemek
+Sıradaki işler mevcut sistemlerin stabilitesi, deterministik regresyon testleri, katman/oda okunabilirliği ve kontrollü denge doğrulamasıdır.
 
 ---
 
@@ -439,7 +408,7 @@ Sıradaki mantıklı işler:
 - Silah dengesi oturmuş değil.
 - Loot oranları test edilmeli.
 - Hikâye entegrasyonu hâlâ yüzeysel.
-- Stage / floor yapısı daha yeni kuruluyor.
+- Katman ve mikro-kat dengesi daha fazla koşu testi gerektiriyor.
 
 ---
 

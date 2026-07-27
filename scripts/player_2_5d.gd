@@ -136,17 +136,7 @@ func _physics_process(delta: float) -> void:
 		_begin_charge(1)
 	if Input.is_action_just_released("attack"):
 		_release_charge(1)
-	
-	
-	# TEST: L tuşu → doğrudan sonraki ana katmana ışınlan
-	if Input.is_physical_key_pressed(KEY_L) and not _debug_layer_key_held:
-		_debug_layer_key_held = true
-		if story_manager and story_manager.has_method("debug_jump_next_main_layer"):
-			story_manager.call("debug_jump_next_main_layer")
-	elif not Input.is_physical_key_pressed(KEY_L):
-		_debug_layer_key_held = false
-	
-	
+
 	# Sağ tık (slot 2)
 	if Input.is_action_just_pressed("attack_secondary"):
 		_begin_charge(2)
@@ -731,6 +721,7 @@ func _handle_debug_shortcuts() -> void:
 	if not (OS.is_debug_build() and enable_debug_shortcuts):
 		_debug_boss_key_held = Input.is_physical_key_pressed(KEY_B)
 		_debug_next_key_held = Input.is_physical_key_pressed(KEY_N)
+		_debug_layer_key_held = Input.is_physical_key_pressed(KEY_L)
 		return
 	if Input.is_physical_key_pressed(KEY_B) and not _debug_boss_key_held:
 		_debug_boss_key_held = true
@@ -744,6 +735,12 @@ func _handle_debug_shortcuts() -> void:
 			story_manager.call("debug_next_layer")
 	elif not Input.is_physical_key_pressed(KEY_N):
 		_debug_next_key_held = false
+	if Input.is_physical_key_pressed(KEY_L) and not _debug_layer_key_held:
+		_debug_layer_key_held = true
+		if story_manager and story_manager.has_method("debug_jump_next_main_layer"):
+			story_manager.call("debug_jump_next_main_layer")
+	elif not Input.is_physical_key_pressed(KEY_L):
+		_debug_layer_key_held = false
 
 # ─── CHARGE SİSTEMİ ───
 

@@ -1707,6 +1707,11 @@ func _floor_material_for_type(room_type: String) -> Material:
 			return _mat("floor")
 
 
+func _wall_material() -> Material:
+	var layer_index := clampi(current_main_layer, 1, 4)
+	return _mat("wall_layer%d" % layer_index)
+
+
 func _wall_material_for_type(room_type: String) -> Material:
 	var layer_index := clampi(current_main_layer, 1, 4)
 	if layer_index >= 2:

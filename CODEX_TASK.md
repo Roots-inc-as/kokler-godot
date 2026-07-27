@@ -1,3 +1,7 @@
+> **LEGACY UYARISI:** Bu belge tarihsel Demo 0.1 (eski 2D prototip) şartnamesidir.
+> Güncel uygulama planı olarak kullanılmamalıdır. Aktif akış `main_menu.tscn` üzerinden
+> `main_2_5d.tscn` sahnesine açılan Godot 4.6 geliştirme yapısıdır.
+
 # CODEX TASK — KÖKLER Demo 0.1
 
 We are working inside an existing Godot 4 project folder.
