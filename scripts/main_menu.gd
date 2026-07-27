@@ -1,12 +1,14 @@
 extends Control
 
 const GAME_SCENE_PATH := "res://scenes/main_2_5d.tscn"
+const FPS_COUNTER_SCRIPT := preload("res://scripts/fps_counter.gd")
 
 var _transition_pending := false
 var _buttons: Array[Button] = []
 var _status_label: Label
 var _how_to_panel: PanelContainer
 var _settings_panel: PanelContainer
+var _fps_counter: FPSCounter
 
 
 func _ready() -> void:
@@ -14,6 +16,7 @@ func _ready() -> void:
 	get_tree().paused = false
 	Engine.time_scale = 1.0
 	_build_ui()
+	_ensure_fps_counter()
 
 
 func _build_ui() -> void:
@@ -135,6 +138,11 @@ func _make_settings_panel() -> PanelContainer:
 	fullscreen.button_pressed = DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN
 	fullscreen.toggled.connect(_on_fullscreen_toggled)
 	box.add_child(fullscreen)
+	var show_fps := CheckButton.new()
+	show_fps.text = "FPS Göster"
+	show_fps.button_pressed = FPS_COUNTER_SCRIPT.load_preference()
+	show_fps.toggled.connect(_on_show_fps_toggled)
+	box.add_child(show_fps)
 	var back := Button.new()
 	back.text = "Geri"
 	back.custom_minimum_size = Vector2(160, 40)
@@ -159,6 +167,22 @@ func _show_settings_panel() -> void:
 
 func _on_fullscreen_toggled(enabled: bool) -> void:
 	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if enabled else DisplayServer.WINDOW_MODE_WINDOWED)
+
+
+func _on_show_fps_toggled(enabled: bool) -> void:
+	var saved := FPS_COUNTER_SCRIPT.save_preference(enabled)
+	if _fps_counter:
+		_fps_counter.set_counter_enabled(enabled)
+	if not saved and _status_label:
+		_status_label.text = "FPS ayarı kaydedilemedi."
+
+
+func _ensure_fps_counter() -> void:
+	if _fps_counter:
+		return
+	_fps_counter = FPS_COUNTER_SCRIPT.new() as FPSCounter
+	_fps_counter.name = "FPSCounter"
+	add_child(_fps_counter)
 
 
 func _on_new_run_pressed() -> void:

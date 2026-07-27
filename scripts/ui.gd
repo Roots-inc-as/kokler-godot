@@ -1,6 +1,7 @@
 extends CanvasLayer
 
 const MINIMAP_SCRIPT := preload("res://scripts/minimap_2_5d.gd")
+const FPS_COUNTER_SCRIPT := preload("res://scripts/fps_counter.gd")
 
 @onready var hp_label: Label = $HPLabel
 @onready var key_label: Label = $KeyLabel
@@ -16,6 +17,7 @@ const MINIMAP_SCRIPT := preload("res://scripts/minimap_2_5d.gd")
 @onready var victory_label: Label = $VictoryPanel/VictoryLabel
 @onready var hit_flash: ColorRect = %HitFlash
 var upgrades_label: Label
+var fps_counter: FPSCounter
 
 var message_token := 0
 
@@ -25,6 +27,7 @@ func _ready() -> void:
 	_ensure_objective_label()
 	_ensure_controls_label()
 	_ensure_minimap()
+	_ensure_fps_counter()
 	_apply_compact_top_left_style()
 	set_key_status(false)
 	set_dash_ready(true, 0.0)
@@ -34,11 +37,12 @@ func _ready() -> void:
 	set_controls_help_text(_default_controls_help_text())
 	message_label.visible = false
 	victory_panel.visible = false
-	var upgrades_label: Label
 
 
 func _ensure_upgrades_label() -> void:
-	if get_node_or_null("UpgradesLabel"):
+	var existing := get_node_or_null("UpgradesLabel") as Label
+	if existing:
+		upgrades_label = existing
 		return
 	upgrades_label = Label.new()
 	upgrades_label.name = "UpgradesLabel"
@@ -185,6 +189,14 @@ func _ensure_minimap() -> void:
 	minimap = MINIMAP_SCRIPT.new() as Control
 	minimap.name = "Minimap"
 	add_child(minimap)
+
+
+func _ensure_fps_counter() -> void:
+	if fps_counter:
+		return
+	fps_counter = FPS_COUNTER_SCRIPT.new() as FPSCounter
+	fps_counter.name = "FPSCounter"
+	add_child(fps_counter)
 
 
 func _ensure_objective_label() -> void:

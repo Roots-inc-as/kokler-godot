@@ -1,5 +1,13 @@
 # KÖKLER / Forgotten Roots Changelog
 
+## 2026-07-27 Stability Integration
+
+- Preserved and integrated the room visual-profile infrastructure.
+- Fixed Mushroom Man navigation-agent lifetime so each enemy owns one agent.
+- Restricted B, N and L test shortcuts to opted-in debug builds.
+- Added a deterministic headless navigation-agent smoke test.
+- Documented the optional wall-texture hooks and flat-color fallbacks.
+
 ## ROOTS V6.1 Hotfix
 
 - Fixed death flow so dying restarts the run instead of quitting/exiting.

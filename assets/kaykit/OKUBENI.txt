@@ -1,0 +1,15 @@
+KÖKLER — Katman Asset Paketleri (KayKit'ten ayıklandı)
+
+Klasörler:
+- Katman1_Toprak: toprak zeminler, kayalar, az ot (sıcak/doğal tünel)
+- Katman2_TasZindan: duvar, sütun, meşale, sancak, fıçı (klasik zindan)
+- Katman3_Kok: çatlak/kırık duvar, otlu taşlar, çalılar (doğa geri alıyor)
+- Katman4_Cokmus: kırık taşlar, moloz, dikenler, ızgaralar (en derin, karanlık)
+- Ortak_Gecisler: merdivenler ve kapı boşlukları (kat geçişleri için)
+
+ÖNEMLİ: dungeon_texture.png ve forest_texture.png dosyaları FBX'lerin
+ortak dokularıdır. Godot'a aktarırken bu iki PNG'yi de FBX'lerle AYNI
+klasöre koy, yoksa modeller gri görünür.
+
+Godot'a aktarma: hepsini res://assets/kaykit/ altına kopyala,
+Godot otomatik import eder.

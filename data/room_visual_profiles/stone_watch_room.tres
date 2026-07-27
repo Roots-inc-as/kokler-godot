@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="RoomVisualProfile" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/environment/room_visual_profile.gd" id="1_profile"]
+[ext_resource type="Material" path="res://environment/materials/mat_stone_corrupted.tres" id="2_floor"]
+[ext_resource type="Material" path="res://environment/materials/mat_stone_base.tres" id="3_wall"]
+
+[resource]
+script = ExtResource("1_profile")
+id = &"stone_watch_room"
+floor_material = ExtResource("2_floor")
+wall_material = ExtResource("3_wall")
+landmark_chance = 0.18
+prop_density_min = 2
+prop_density_max = 4
+root_density = 0.1
+fungal_density = 0.0
+lighting_profile = &"stone_watch"
