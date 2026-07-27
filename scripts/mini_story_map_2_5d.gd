@@ -13,6 +13,8 @@ const LORE_TRIGGER_SCRIPT := preload("res://scripts/lore_trigger_3d.gd")
 const DEATH_SCREEN_SCRIPT := preload("res://scripts/death_screen.gd")
 const UPGRADE_SCREEN_SCRIPT := preload("res://scripts/upgrade_screen.gd")
 const KEEP_CARD_SCREEN_SCRIPT := preload("res://scripts/keep_card_screen.gd")
+const KAYKIT_LAYER_WALL_VISUALS_SCRIPT := preload("res://scripts/environment/kaykit_layer_wall_visuals.gd")
+const LAYER1_CAVE_VISUALS_SCRIPT := preload("res://scripts/environment/layer1_cave_visuals.gd")
 
 const GRID_SIZE := 10
 const CELL_SPACING := 23.0
@@ -70,6 +72,9 @@ const FUTURE_PASSIVE_ITEM_IDS: Array[String] = [
 @export var debug_room_labels := false
 @export var start_fullscreen := true
 @export var spawn_debug_start_weapons := false
+@export var enable_layer1_cave_prototype := true
+@export var enable_kaykit_layer1_walls := false
+@export var enable_kaykit_layer2_walls := true
 
 var player: Node3D
 var ui: Node
@@ -122,6 +127,10 @@ var discovered_rooms: Dictionary = {}
 var shown_lore_messages: Dictionary = {}
 var mats: Dictionary = {}
 var room_visual_profiles: Dictionary = {}
+var _kaykit_wall_visuals: KayKitLayerWallVisuals
+var _layer1_cave_visuals: Layer1CaveVisuals
+var _layer1_cave_room_id := ""
+var _layer1_cave_neighbor_room_id := ""
 
 var start_cell := Vector2i.ZERO
 var key_cell := Vector2i.ZERO
@@ -143,6 +152,8 @@ func _ready() -> void:
 		randomize()
 	_build_materials()
 	_load_room_visual_profiles()
+	_kaykit_wall_visuals = KAYKIT_LAYER_WALL_VISUALS_SCRIPT.new()
+	_layer1_cave_visuals = LAYER1_CAVE_VISUALS_SCRIPT.new()
 	_connect_player()
 	_setup_new_main_layer()
 	_build_dungeon()
@@ -1156,6 +1167,8 @@ func _build_dungeon() -> void:
 	# Mikro kat seed'ini uygula
 	if micro_floor_seeds.has(current_micro_floor):
 		seed(micro_floor_seeds[current_micro_floor])
+	if _kaykit_wall_visuals != null:
+		_kaykit_wall_visuals.set_active_layer(current_main_layer)
 	
 	dungeon_root = Node3D.new()
 	dungeon_root.name = "KokTuneliDungeon"
@@ -1165,6 +1178,7 @@ func _build_dungeon() -> void:
 	if room_order.is_empty() or not rooms.has(start_room_id) or not rooms.has(key_room_id) or not rooms.has(exit_room_id):
 		push_error("Dungeon generation failed to produce reachable start/key/exit rooms.")
 		return
+	_configure_layer1_cave_prototype()
 
 	for room_id in room_order:
 		_add_room(room_id)
@@ -1659,15 +1673,67 @@ func _openings_for_cell(cell: Vector2i) -> Array[String]:
 	return openings
 
 
+func _configure_layer1_cave_prototype() -> void:
+	_layer1_cave_room_id = ""
+	_layer1_cave_neighbor_room_id = ""
+	if not _use_layer1_cave_prototype():
+		return
+	_layer1_cave_room_id = start_room_id
+	var neighbor_ids: Array[String] = []
+	var neighbors: Array = graph.get(start_cell, []) as Array
+	for neighbor_variant in neighbors:
+		var neighbor: Vector2i = neighbor_variant
+		if cell_to_room_id.has(neighbor):
+			neighbor_ids.append(String(cell_to_room_id[neighbor]))
+	neighbor_ids.sort()
+	if not neighbor_ids.is_empty():
+		_layer1_cave_neighbor_room_id = neighbor_ids[0]
+
+
+func _use_layer1_cave_prototype() -> bool:
+	return (
+		enable_layer1_cave_prototype
+		and current_main_layer == 1
+		and _layer1_cave_visuals != null
+	)
+
+
+func _is_layer1_cave_room(room_id: String) -> bool:
+	return _use_layer1_cave_prototype() and room_id == _layer1_cave_room_id
+
+
+func _is_layer1_cave_corridor(a_id: String, b_id: String) -> bool:
+	if not _use_layer1_cave_prototype() or _layer1_cave_neighbor_room_id.is_empty():
+		return false
+	return (
+		(a_id == _layer1_cave_room_id and b_id == _layer1_cave_neighbor_room_id)
+		or (b_id == _layer1_cave_room_id and a_id == _layer1_cave_neighbor_room_id)
+	)
+
+
 func _add_room(room_id: String) -> void:
 	var room: Dictionary = rooms[room_id] as Dictionary
 	var center: Vector3 = room["center"]
 	var size: Vector2 = room["size"]
 	var room_type: String = room["type"]
 	var floor_mat: Material = _floor_material_for_type(room_type)
-	_add_box(dungeon_root, room_id + "_floor", Vector3(center.x, -0.08, center.z), Vector3(size.x, 0.16, size.y), floor_mat)
+	var floor_size := Vector3(size.x, 0.16, size.y)
+	var floor_visual: Node3D = _add_box(dungeon_root, room_id + "_floor", Vector3(center.x, -0.08, center.z), floor_size, floor_mat)
+	if _is_layer1_cave_room(room_id):
+		_layer1_cave_visuals.decorate_floor(floor_visual, floor_size)
 	_add_room_walls(room_id, center, size, room["openings"] as Array, room_type)
+	if _is_layer1_cave_room(room_id):
+		_add_layer1_cave_room_decor(room)
 	_add_layer_corner_decor(room)
+
+
+func _add_layer1_cave_room_decor(room: Dictionary) -> void:
+	if not _is_layer1_cave_room(String(room["id"])):
+		return
+	var first_position := _room_point(room, -0.38, 0.30, 0.0)
+	var second_position := _room_point(room, 0.36, -0.31, 0.0)
+	_layer1_cave_visuals.add_rock(dungeon_root, first_position, 0.35, 0.68, false)
+	_layer1_cave_visuals.add_rock(dungeon_root, second_position, -0.55, 0.58, true)
 
 
 # Katmana göre oda köşelerine zindan süslemesi: 2=taş sütun, 3=kök kümesi, 4=parlayan damar
@@ -1730,34 +1796,106 @@ func _add_room_walls(room_id: String, center: Vector3, size: Vector2, openings: 
 	var east := Vector3(center.x + size.x * 0.5, WALL_HEIGHT * 0.5, center.z)
 
 	if openings.has("north"):
-		_add_wall_with_opening(room_id + "_north", north, Vector3(size.x, WALL_HEIGHT, WALL_THICKNESS), "x", wall_mat)
+		_add_wall_with_opening(room_id + "_north", north, Vector3(size.x, WALL_HEIGHT, WALL_THICKNESS), "x", wall_mat, room_id)
 	else:
-		_add_box(dungeon_root, room_id + "_north", north, Vector3(size.x, WALL_HEIGHT, WALL_THICKNESS), wall_mat, true)
+		_add_room_wall_segment(room_id + "_north", north, Vector3(size.x, WALL_HEIGHT, WALL_THICKNESS), "x", wall_mat, room_id)
 	if openings.has("south"):
-		_add_wall_with_opening(room_id + "_south", south, Vector3(size.x, WALL_HEIGHT, WALL_THICKNESS), "x", wall_mat)
+		_add_wall_with_opening(room_id + "_south", south, Vector3(size.x, WALL_HEIGHT, WALL_THICKNESS), "x", wall_mat, room_id)
 	else:
-		_add_box(dungeon_root, room_id + "_south", south, Vector3(size.x, WALL_HEIGHT, WALL_THICKNESS), wall_mat, true)
+		_add_room_wall_segment(room_id + "_south", south, Vector3(size.x, WALL_HEIGHT, WALL_THICKNESS), "x", wall_mat, room_id)
 	if openings.has("west"):
-		_add_wall_with_opening(room_id + "_west", west, Vector3(WALL_THICKNESS, WALL_HEIGHT, size.y), "z", wall_mat)
+		_add_wall_with_opening(room_id + "_west", west, Vector3(WALL_THICKNESS, WALL_HEIGHT, size.y), "z", wall_mat, room_id)
 	else:
-		_add_box(dungeon_root, room_id + "_west", west, Vector3(WALL_THICKNESS, WALL_HEIGHT, size.y), wall_mat, true)
+		_add_room_wall_segment(room_id + "_west", west, Vector3(WALL_THICKNESS, WALL_HEIGHT, size.y), "z", wall_mat, room_id)
 	if openings.has("east"):
-		_add_wall_with_opening(room_id + "_east", east, Vector3(WALL_THICKNESS, WALL_HEIGHT, size.y), "z", wall_mat)
+		_add_wall_with_opening(room_id + "_east", east, Vector3(WALL_THICKNESS, WALL_HEIGHT, size.y), "z", wall_mat, room_id)
 	else:
-		_add_box(dungeon_root, room_id + "_east", east, Vector3(WALL_THICKNESS, WALL_HEIGHT, size.y), wall_mat, true)
+		_add_room_wall_segment(room_id + "_east", east, Vector3(WALL_THICKNESS, WALL_HEIGHT, size.y), "z", wall_mat, room_id)
+
+	if _is_layer1_cave_room(room_id):
+		_add_layer1_cave_room_corners(center, size)
+	else:
+		_add_kaykit_room_corners(room_id, center, size, room_type)
 
 
-func _add_wall_with_opening(base_name: String, center: Vector3, size: Vector3, axis: String, mat: Material) -> void:
+func _add_wall_with_opening(base_name: String, center: Vector3, size: Vector3, axis: String, mat: Material, room_id: String) -> void:
 	if axis == "x":
 		var segment := (size.x - DOOR_GAP) * 0.5
 		if segment > 0.15:
-			_add_box(dungeon_root, base_name + "_a", center + Vector3(-(DOOR_GAP + segment) * 0.5, 0.0, 0.0), Vector3(segment, size.y, size.z), mat, true)
-			_add_box(dungeon_root, base_name + "_b", center + Vector3((DOOR_GAP + segment) * 0.5, 0.0, 0.0), Vector3(segment, size.y, size.z), mat, true)
+			_add_room_wall_segment(base_name + "_a", center + Vector3(-(DOOR_GAP + segment) * 0.5, 0.0, 0.0), Vector3(segment, size.y, size.z), axis, mat, room_id)
+			_add_room_wall_segment(base_name + "_b", center + Vector3((DOOR_GAP + segment) * 0.5, 0.0, 0.0), Vector3(segment, size.y, size.z), axis, mat, room_id)
 	else:
 		var segment := (size.z - DOOR_GAP) * 0.5
 		if segment > 0.15:
-			_add_box(dungeon_root, base_name + "_a", center + Vector3(0.0, 0.0, -(DOOR_GAP + segment) * 0.5), Vector3(size.x, size.y, segment), mat, true)
-			_add_box(dungeon_root, base_name + "_b", center + Vector3(0.0, 0.0, (DOOR_GAP + segment) * 0.5), Vector3(size.x, size.y, segment), mat, true)
+			_add_room_wall_segment(base_name + "_a", center + Vector3(0.0, 0.0, -(DOOR_GAP + segment) * 0.5), Vector3(size.x, size.y, segment), axis, mat, room_id)
+			_add_room_wall_segment(base_name + "_b", center + Vector3(0.0, 0.0, (DOOR_GAP + segment) * 0.5), Vector3(size.x, size.y, segment), axis, mat, room_id)
+
+	if _is_layer1_cave_room(room_id):
+		_layer1_cave_visuals.add_entrance(dungeon_root, center, axis, DOOR_GAP, size.y, WALL_THICKNESS)
+	elif _use_kaykit_walls():
+		_kaykit_wall_visuals.add_doorway(dungeon_root, center, axis, DOOR_GAP, size.y, WALL_THICKNESS)
+
+
+func _add_room_wall_segment(node_name: String, position: Vector3, size: Vector3, axis: String, mat: Material, room_id: String) -> Node3D:
+	var wall_body: Node3D = _add_box(dungeon_root, node_name, position, size, mat, true)
+	if _is_layer1_cave_room(room_id):
+		_layer1_cave_visuals.decorate_wall_body(wall_body, size, axis)
+	elif _use_kaykit_walls():
+		_kaykit_wall_visuals.decorate_wall_body(wall_body, size, axis)
+	return wall_body
+
+
+func _add_layer1_cave_room_corners(center: Vector3, size: Vector2) -> void:
+	var half_size := size * 0.5
+	var corners: Array[Dictionary] = [
+		{"position": center + Vector3(-half_size.x, WALL_HEIGHT * 0.5, -half_size.y), "yaw": 0.0},
+		{"position": center + Vector3(half_size.x, WALL_HEIGHT * 0.5, -half_size.y), "yaw": -PI * 0.5},
+		{"position": center + Vector3(half_size.x, WALL_HEIGHT * 0.5, half_size.y), "yaw": PI},
+		{"position": center + Vector3(-half_size.x, WALL_HEIGHT * 0.5, half_size.y), "yaw": PI * 0.5},
+	]
+	for corner: Dictionary in corners:
+		_layer1_cave_visuals.add_corner(
+			dungeon_root,
+			corner["position"] as Vector3,
+			float(corner["yaw"]),
+			WALL_HEIGHT,
+			false
+		)
+
+
+func _add_kaykit_room_corners(room_id: String, center: Vector3, size: Vector2, room_type: String) -> void:
+	if not _use_kaykit_walls():
+		return
+	var use_small_corner := room_type in ["root_tunnel", "loot_niche", "sealed_white_door"]
+	var half_size := size * 0.5
+	var corners: Array[Dictionary] = [
+		{"suffix": "north_west", "position": center + Vector3(-half_size.x, WALL_HEIGHT * 0.5, -half_size.y), "yaw": 0.0},
+		{"suffix": "north_east", "position": center + Vector3(half_size.x, WALL_HEIGHT * 0.5, -half_size.y), "yaw": -PI * 0.5},
+		{"suffix": "south_east", "position": center + Vector3(half_size.x, WALL_HEIGHT * 0.5, half_size.y), "yaw": PI},
+		{"suffix": "south_west", "position": center + Vector3(-half_size.x, WALL_HEIGHT * 0.5, half_size.y), "yaw": PI * 0.5},
+	]
+	for corner: Dictionary in corners:
+		var corner_visual: Node3D = _kaykit_wall_visuals.add_corner(
+			dungeon_root,
+			corner["position"] as Vector3,
+			float(corner["yaw"]),
+			WALL_HEIGHT,
+			use_small_corner
+		)
+		if corner_visual != null:
+			corner_visual.name = "%s_%s_KayKitCorner" % [room_id, String(corner["suffix"])]
+
+
+func _use_kaykit_walls() -> bool:
+	if _kaykit_wall_visuals == null:
+		return false
+	match current_main_layer:
+		1:
+			return enable_kaykit_layer1_walls and not _use_layer1_cave_prototype()
+		2:
+			return enable_kaykit_layer2_walls
+		_:
+			return false
 
 
 func _add_corridors() -> void:
@@ -1798,6 +1936,7 @@ func _connect_rooms(a_id: String, b_id: String) -> void:
 	var corridor_width := _corridor_width_for_variant(variant)
 	var floor_mat: Material = _corridor_floor_for_variant(variant)
 	var wall_h := 1.12
+	var use_cave_visuals := _is_layer1_cave_corridor(a_id, b_id)
 
 	if absf(a_center.z - b_center.z) < 0.1:
 		var direction := signf(b_center.x - a_center.x)
@@ -1805,9 +1944,16 @@ func _connect_rooms(a_id: String, b_id: String) -> void:
 		var b_edge := b_center.x - direction * b_size.x * 0.5
 		var length := absf(b_edge - a_edge)
 		var center := Vector3((a_edge + b_edge) * 0.5, -0.075, a_center.z)
-		_add_box(dungeon_root, a_id + "_to_" + b_id + "_floor", center, Vector3(length, 0.15, corridor_width), floor_mat)
-		_add_box(dungeon_root, a_id + "_to_" + b_id + "_north_wall", Vector3(center.x, wall_h * 0.5, center.z - corridor_width * 0.5), Vector3(length + WALL_THICKNESS, wall_h, WALL_THICKNESS), wall_mat, true)
-		_add_box(dungeon_root, a_id + "_to_" + b_id + "_south_wall", Vector3(center.x, wall_h * 0.5, center.z + corridor_width * 0.5), Vector3(length + WALL_THICKNESS, wall_h, WALL_THICKNESS), wall_mat, true)
+		var floor_size := Vector3(length, 0.15, corridor_width)
+		var wall_size := Vector3(length + WALL_THICKNESS, wall_h, WALL_THICKNESS)
+		var corridor_floor: Node3D = _add_box(dungeon_root, a_id + "_to_" + b_id + "_floor", center, floor_size, floor_mat)
+		var north_wall: Node3D = _add_box(dungeon_root, a_id + "_to_" + b_id + "_north_wall", Vector3(center.x, wall_h * 0.5, center.z - corridor_width * 0.5), wall_size, wall_mat, true)
+		var south_wall: Node3D = _add_box(dungeon_root, a_id + "_to_" + b_id + "_south_wall", Vector3(center.x, wall_h * 0.5, center.z + corridor_width * 0.5), wall_size, wall_mat, true)
+		if use_cave_visuals:
+			_layer1_cave_visuals.decorate_floor(corridor_floor, floor_size)
+			_layer1_cave_visuals.decorate_wall_body(north_wall, wall_size, "x")
+			_layer1_cave_visuals.decorate_wall_body(south_wall, wall_size, "x")
+			_add_layer1_cave_corridor_corners(center, length, corridor_width, true, wall_h)
 		_add_corridor_dressing(a_id + "_to_" + b_id, center, length, corridor_width, true, variant)
 	else:
 		var direction := signf(b_center.z - a_center.z)
@@ -1815,10 +1961,46 @@ func _connect_rooms(a_id: String, b_id: String) -> void:
 		var b_edge := b_center.z - direction * b_size.y * 0.5
 		var length := absf(b_edge - a_edge)
 		var center := Vector3(a_center.x, -0.075, (a_edge + b_edge) * 0.5)
-		_add_box(dungeon_root, a_id + "_to_" + b_id + "_floor", center, Vector3(corridor_width, 0.15, length), floor_mat)
-		_add_box(dungeon_root, a_id + "_to_" + b_id + "_west_wall", Vector3(center.x - corridor_width * 0.5, wall_h * 0.5, center.z), Vector3(WALL_THICKNESS, wall_h, length + WALL_THICKNESS), wall_mat, true)
-		_add_box(dungeon_root, a_id + "_to_" + b_id + "_east_wall", Vector3(center.x + corridor_width * 0.5, wall_h * 0.5, center.z), Vector3(WALL_THICKNESS, wall_h, length + WALL_THICKNESS), wall_mat, true)
+		var floor_size := Vector3(corridor_width, 0.15, length)
+		var wall_size := Vector3(WALL_THICKNESS, wall_h, length + WALL_THICKNESS)
+		var corridor_floor: Node3D = _add_box(dungeon_root, a_id + "_to_" + b_id + "_floor", center, floor_size, floor_mat)
+		var west_wall: Node3D = _add_box(dungeon_root, a_id + "_to_" + b_id + "_west_wall", Vector3(center.x - corridor_width * 0.5, wall_h * 0.5, center.z), wall_size, wall_mat, true)
+		var east_wall: Node3D = _add_box(dungeon_root, a_id + "_to_" + b_id + "_east_wall", Vector3(center.x + corridor_width * 0.5, wall_h * 0.5, center.z), wall_size, wall_mat, true)
+		if use_cave_visuals:
+			_layer1_cave_visuals.decorate_floor(corridor_floor, floor_size)
+			_layer1_cave_visuals.decorate_wall_body(west_wall, wall_size, "z")
+			_layer1_cave_visuals.decorate_wall_body(east_wall, wall_size, "z")
+			_add_layer1_cave_corridor_corners(center, length, corridor_width, false, wall_h)
 		_add_corridor_dressing(a_id + "_to_" + b_id, center, length, corridor_width, false, variant)
+
+
+func _add_layer1_cave_corridor_corners(center: Vector3, length: float, width: float, horizontal: bool, height: float) -> void:
+	var half_length := length * 0.5
+	var half_width := width * 0.5
+	var corner_height := height * 0.5
+	var corners: Array[Dictionary]
+	if horizontal:
+		corners = [
+			{"position": center + Vector3(-half_length, corner_height, -half_width), "yaw": 0.0},
+			{"position": center + Vector3(half_length, corner_height, -half_width), "yaw": -PI * 0.5},
+			{"position": center + Vector3(half_length, corner_height, half_width), "yaw": PI},
+			{"position": center + Vector3(-half_length, corner_height, half_width), "yaw": PI * 0.5},
+		]
+	else:
+		corners = [
+			{"position": center + Vector3(-half_width, corner_height, -half_length), "yaw": 0.0},
+			{"position": center + Vector3(half_width, corner_height, -half_length), "yaw": -PI * 0.5},
+			{"position": center + Vector3(half_width, corner_height, half_length), "yaw": PI},
+			{"position": center + Vector3(-half_width, corner_height, half_length), "yaw": PI * 0.5},
+		]
+	for corner: Dictionary in corners:
+		_layer1_cave_visuals.add_corner(
+			dungeon_root,
+			corner["position"] as Vector3,
+			float(corner["yaw"]),
+			height,
+			true
+		)
 
 
 func _corridor_variant_for(a_id: String, b_id: String) -> String:
