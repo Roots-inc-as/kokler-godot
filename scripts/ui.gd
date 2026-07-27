@@ -147,11 +147,15 @@ func reveal_minimap_rooms(room_ids: Array) -> void:
 
 
 func show_message(text: String, duration := 3.0) -> void:
+	if not is_inside_tree():
+		return
 	message_token += 1
 	var token := message_token
 	message_label.text = text
 	message_label.visible = true
 	await get_tree().create_timer(duration).timeout
+	if not is_inside_tree():
+		return
 	if token == message_token and not victory_panel.visible:
 		message_label.visible = false
 

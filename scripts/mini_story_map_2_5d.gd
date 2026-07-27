@@ -1633,6 +1633,24 @@ func _add_room(room_id: String) -> void:
 	var floor_mat: Material = _floor_material_for_type(room_type)
 	_add_box(dungeon_root, room_id + "_floor", Vector3(center.x, -0.08, center.z), Vector3(size.x, 0.16, size.y), floor_mat)
 	_add_room_walls(room_id, center, size, room["openings"] as Array)
+	_add_layer_corner_decor(room)
+
+
+# Katmana göre oda köşelerine zindan süslemesi: 2=taş sütun, 3=kök kümesi, 4=parlayan damar
+func _add_layer_corner_decor(room: Dictionary) -> void:
+	var idx := clampi(current_main_layer, 1, 4)
+	if idx == 1:
+		return
+	var corners := [Vector2(-0.42, -0.42), Vector2(0.42, -0.42), Vector2(-0.42, 0.42), Vector2(0.42, 0.42)]
+	for c in corners:
+		var pos := _room_point(room, c.x, c.y, 0.0)
+		match idx:
+			2:
+				_add_box(dungeon_root, "corner_pillar", Vector3(pos.x, 1.0, pos.z), Vector3(0.42, 2.0, 0.42), _mat("stone"))
+			3:
+				_add_root_cluster(Vector3(pos.x, 0.0, pos.z), 4)
+			4:
+				_add_box(dungeon_root, "corner_vein", Vector3(pos.x, 1.0, pos.z), Vector3(0.28, 2.0, 0.28), _mat("vein_glow"))
 
 
 func _floor_material_for_type(room_type: String) -> Material:
@@ -1646,11 +1664,20 @@ func _floor_material_for_type(room_type: String) -> Material:
 		"rat_nest":
 			return _mat("floor_root")
 		_:
+			var idx := clampi(current_main_layer, 1, 4)
+			if idx >= 2:
+				return _mat("floor_layer%d" % idx)
 			return _mat("floor")
 
 
+# Ana katmana göre duvar materyali seç (1-4)
+func _wall_material() -> Material:
+	var idx := clampi(current_main_layer, 1, 4)
+	return _mat("wall_layer%d" % idx)
+
+
 func _add_room_walls(room_id: String, center: Vector3, size: Vector2, openings: Array) -> void:
-	var wall_mat: Material = _mat("wall")
+	var wall_mat: Material = _wall_material()
 	var north := Vector3(center.x, WALL_HEIGHT * 0.5, center.z - size.y * 0.5)
 	var south := Vector3(center.x, WALL_HEIGHT * 0.5, center.z + size.y * 0.5)
 	var west := Vector3(center.x - size.x * 0.5, WALL_HEIGHT * 0.5, center.z)
@@ -1720,7 +1747,7 @@ func _connect_rooms(a_id: String, b_id: String) -> void:
 	var b_center: Vector3 = b["center"]
 	var a_size: Vector2 = a["size"]
 	var b_size: Vector2 = b["size"]
-	var wall_mat: Material = _mat("wall")
+	var wall_mat: Material = _wall_material()
 	var variant := _corridor_variant_for(a_id, b_id)
 	var corridor_width := _corridor_width_for_variant(variant)
 	var floor_mat: Material = _corridor_floor_for_variant(variant)
@@ -2433,6 +2460,17 @@ func _add_room_light(room: Dictionary) -> void:
 			light.light_energy = 0.48
 		_:
 			pass
+			# Katman atmosferi: inildikçe ışık soğur ve kararır
+	match clampi(current_main_layer, 1, 4):
+		2:
+			light.light_color = light.light_color.lerp(Color(0.7, 0.75, 0.85), 0.4)
+			light.light_energy *= 0.9
+		3:
+			light.light_color = light.light_color.lerp(Color(0.45, 0.85, 0.55), 0.45)
+			light.light_energy *= 0.8
+		4:
+			light.light_color = light.light_color.lerp(Color(0.6, 0.35, 0.9), 0.55)
+			light.light_energy *= 0.7
 	dungeon_root.add_child(light)
 	light.global_position = _room_point(room, 0.0, 0.0, 2.7)
 
@@ -2805,6 +2843,14 @@ func _build_materials() -> void:
 		"floor_green": _make_material(Color(0.13, 0.17, 0.13)),
 		"floor_crack": _make_material(Color(0.065, 0.043, 0.03)),
 		"wall": _make_material(Color(0.085, 0.065, 0.05)),
+		"wall_layer1": _make_wall_material(Color(0.10, 0.075, 0.055), "res://textures/wall_layer1.png"),
+		"wall_layer2": _make_wall_material(Color(0.17, 0.17, 0.185), "res://textures/wall_layer2.png"),
+		"wall_layer3": _make_wall_material(Color(0.075, 0.12, 0.065), "res://textures/wall_layer3.png"),
+		"wall_layer4": _make_wall_material(Color(0.05, 0.035, 0.075), "res://textures/wall_layer4.png"),
+		"floor_layer2": _make_material(Color(0.155, 0.155, 0.15)),
+		"floor_layer3": _make_material(Color(0.105, 0.135, 0.085)),
+		"floor_layer4": _make_material(Color(0.07, 0.05, 0.09)),
+		"vein_glow": _make_material(Color(0.30, 0.16, 0.42), Color(0.55, 0.25, 0.85), 0.9),
 		"wall_dark": _make_material(Color(0.045, 0.035, 0.03)),
 		"stone": _make_material(Color(0.31, 0.29, 0.25)),
 		"white_stone": _make_material(Color(0.70, 0.70, 0.64)),
@@ -2842,6 +2888,21 @@ func _make_material(color: Color, emission := Color.BLACK, emission_energy := 0.
 		mat.emission = emission
 		mat.emission_energy_multiplier = emission_energy
 	return mat
+
+
+# Duvar materyali: varsa doku yükler, yoksa düz renk. Triplanar UV sayesinde
+# farklı boyutlu kutularda doku esnemeden döşenir.
+func _make_wall_material(color: Color, tex_path: String) -> StandardMaterial3D:
+	var mat := _make_material(color)
+	if tex_path != "" and ResourceLoader.exists(tex_path):
+		var tex: Texture2D = load(tex_path)
+		if tex:
+			mat.albedo_texture = tex
+			mat.albedo_color = Color(1, 1, 1)
+			mat.uv1_triplanar = true
+			mat.uv1_scale = Vector3(0.35, 0.35, 0.35)
+	return mat
+
 
 			
 func set_pending_swap_pickup(pickup: Node3D) -> void:
@@ -2942,8 +3003,6 @@ func _spawn_boss(exit_room: Dictionary) -> void:
 		boss.damage = int(boss.damage) + 1
 	if "move_speed" in boss:
 		boss.move_speed = float(boss.move_speed) * 0.85
-	if "damage" in boss:
-		boss.damage = int(boss.damage) + 1
 
 	var model_node := boss.get_node_or_null("Model")
 	if model_node:
@@ -2960,6 +3019,9 @@ func _spawn_boss(exit_room: Dictionary) -> void:
 
 func _on_boss_defeated() -> void:
 	if _boss_defeated:
+		return
+	# Sahne yıkılırken boss'un tree_exited'ı tetiklenir; o durumda hiçbir şey yapma
+	if not is_inside_tree() or death_reload_pending:
 		return
 	_boss_defeated = true
 	show_message("Yaşlı şey sustu. Yol açıldı.", 2.4)
@@ -3012,6 +3074,22 @@ func debug_jump_to_boss() -> void:
 func debug_next_layer() -> void:
 	print("=== TEST: Ana katman geçişi (fade) tetiklendi")
 	_finish_main_layer()
+
+
+# TEST: Doğrudan sonraki ana katmana ışınlan (fade/kart yok, duvar testi için)
+func debug_jump_next_main_layer() -> void:
+	if current_main_layer >= max_main_layers:
+		print("=== TEST: Zaten son ana katmandasın")
+		return
+	current_main_layer += 1
+	current_micro_floor = 1
+	print("=== TEST: Ana katman ", current_main_layer, " ışınlandı")
+	_setup_new_main_layer()
+	run_locked = false
+	has_key = false
+	_update_key_ui()
+	_clear_dungeon()
+	_build_dungeon()
 
 
 func _clear_dungeon() -> void:

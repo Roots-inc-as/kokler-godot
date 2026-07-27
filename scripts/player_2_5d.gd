@@ -148,6 +148,16 @@ func _physics_process(delta: float) -> void:
 	if Input.is_action_just_released("attack"):
 		_release_charge(1)
 	
+	
+	# TEST: L tuşu → doğrudan sonraki ana katmana ışınlan
+	if Input.is_physical_key_pressed(KEY_L) and not _debug_layer_key_held:
+		_debug_layer_key_held = true
+		if story_manager and story_manager.has_method("debug_jump_next_main_layer"):
+			story_manager.call("debug_jump_next_main_layer")
+	elif not Input.is_physical_key_pressed(KEY_L):
+		_debug_layer_key_held = false
+	
+	
 	# Sağ tık (slot 2)
 	if Input.is_action_just_pressed("attack_secondary"):
 		_begin_charge(2)
@@ -186,8 +196,10 @@ func get_health_state() -> Dictionary:
 	}
 
 
-func take_damage(amount: int) -> void:
-	if current_hp <= 0 or invulnerable_remaining > 0.0 or _run_is_locked():
+func take_damage(amount: int, ignore_invuln := false) -> void:
+	if current_hp <= 0 or _run_is_locked():
+		return
+	if invulnerable_remaining > 0.0 and not ignore_invuln:
 		return
 
 	current_hp = maxi(current_hp - amount, 0)
@@ -687,6 +699,7 @@ var _active_pause_menu: CanvasLayer
 var _ignore_pause_key := false
 var _debug_boss_key_held := false
 var _debug_next_key_held := false
+var _debug_layer_key_held := false
 
 func _toggle_pause_menu() -> void:
 	if _active_pause_menu and is_instance_valid(_active_pause_menu):

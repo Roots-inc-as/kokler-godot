@@ -40,5 +40,5 @@ func _on_body_entered(body: Node3D) -> void:
 		queue_free()
 		return
 	elif body.is_in_group("player_2_5d") and body.has_method("take_damage"):
-		body.call("take_damage", damage)
+		body.call("take_damage", damage, true)
 	queue_free()
